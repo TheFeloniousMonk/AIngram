@@ -17,6 +17,7 @@ voices:
   brain:
     may_write_kinds: "*"
     may_write_subjects: ["**"]
+    may_read_subjects: ["**"]
     may_pin: true
     may_redact: own          # entries written by the brain voice
     daily_write_cap: 300
@@ -24,6 +25,8 @@ voices:
   code:
     may_write_kinds: [decision, shipped, gotcha]
     may_write_subjects: ["project-a/**", "project-b/**", "aingram/**"]
+    # Narrow this to keep a leaked code key from reading the brain's private memory.
+    may_read_subjects: ["**"]
     may_pin: false
     may_redact: none
     daily_write_cap: 60
@@ -34,6 +37,7 @@ voices:
     # not admin.
     may_write_kinds: [redaction]
     may_write_subjects: ["_redactions"]
+    may_read_subjects: ["**"]
     may_pin: false
     may_redact: any
     daily_write_cap: null
@@ -46,7 +50,7 @@ admin:
 brain_only_subjects: ["self/**", "people/**", "ways-of-working/**", "identity/**"]
 
 # Reserved: written by the core itself, never directly by a voice.
-reserved_subjects: ["_redactions"]
+reserved_subjects: ["_redactions/**"]
 reserved_kinds: [redaction]
 
 decay:
@@ -66,3 +70,10 @@ boot:
   # "1 entry redacted since you last woke": the brain learns that something
   # was forgotten, never what. Shown whenever a tombstone is newer than last boot.
   redaction_notice: true
+
+limits:
+  body_max_chars: 200000
+  keywords_max: 32
+  keyword_max_chars: 64
+  refs_max: 32
+  recall_max: 50
