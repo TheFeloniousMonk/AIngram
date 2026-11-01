@@ -74,12 +74,13 @@ def parse_message(message: str) -> dict:
     return out
 
 
-def prepare(conn, server: str, action: dict, now: datetime | None = None) -> str:
+def prepare(conn, server: str, action: dict, now: datetime | None = None,
+            ttl_seconds: int = TTL_SECONDS) -> str:
     if action.get("action") not in ACTIONS:
         raise AdminAuthError(f"unknown admin action {action.get('action')!r}")
     now = now or datetime.now(timezone.utc)
     nonce = os.urandom(16).hex()
-    issued, expires = _fmt(now), _fmt(now + timedelta(seconds=TTL_SECONDS))
+    issued, expires = _fmt(now), _fmt(now + timedelta(seconds=ttl_seconds))
     conn.execute("INSERT INTO admin_nonces (nonce, issued_at, expires_at) VALUES (?,?,?)",
                  (nonce, issued, expires))
     return build_message(server, action, nonce, issued, expires)
@@ -123,6 +124,17 @@ def authorize(conn, server: str, admin_address: str, message: str, signature: st
     except BaseException:
         conn.execute("ROLLBACK")
         raise
+    return m["action"]
+
+
+def verify_logged(message: str, signature: str, server: str, admin_address: str) -> dict:
+    """Re-check a signature already kept in admin_log, without touching nonces.
+    Used by the server to confirm a logged approval really came from the admin wallet."""
+    m = parse_message(message)
+    if m["server"] != server:
+        raise AdminAuthError("logged command was signed for a different server")
+    if recover_signer(message, signature).lower() != admin_address.lower():
+        raise AdminAuthError("logged command is not signed by the admin address")
     return m["action"]
 
 
