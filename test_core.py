@@ -163,6 +163,19 @@ class Redaction(unittest.TestCase):
             core.redact(conn, target_id=ids[0], by_key_id="k_brain", reason="twice")
         self.assertEqual(core.verify(conn), [])
 
+    def test_redacted_content_leaves_the_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "store.db"
+            conn = fresh(path)
+            ids = put(conn, 1, body="xyzzyplugh secret body", keywords=["kwsecretword"])
+            put(conn, 3)
+            core.redact(conn, target_id=ids[0], by_key_id="k_brain", reason="forget")
+            conn.close()
+            for f in Path(d).iterdir():
+                data = f.read_bytes()
+                self.assertNotIn(b"xyzzyplugh", data, f.name)
+                self.assertNotIn(b"kwsecretword", data, f.name)
+
     def test_failed_redaction_rolls_back_everything(self):
         conn = fresh()
         put(conn, 1)

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import unicodedata
 
 import admin_auth
 import aingram_core as core
@@ -30,6 +31,18 @@ from aingram_policy import PolicyError, load_policy
 
 class Refused(Exception):
     pass
+
+
+def plain_text(value: str, what: str) -> str:
+    """Labels and reasons go into the message the wallet shows. Control, format
+    and line/paragraph separator characters could make that message look like
+    something else, so they are refused."""
+    value = value.strip()
+    if not value:
+        raise Refused(f"{what} is required")
+    if any(unicodedata.category(c)[0] == "C" or unicodedata.category(c) in ("Zl", "Zp") for c in value):
+        raise Refused(f"{what} may not contain control, format or line-separator characters")
+    return value
 
 
 class Admin:
@@ -97,8 +110,7 @@ class Admin:
     def keys_mint(self, voice: str, label: str) -> None:
         if voice != "code":
             raise Refused("only code keys are minted here; the brain is granted by wallet sign-in")
-        if not label.strip():
-            raise Refused("a key needs a label")
+        label = plain_text(label, "a key label")
         minted = {}
 
         def perform(a):
@@ -111,7 +123,7 @@ class Admin:
                 raise
             return f"minted {minted['id']}"
 
-        self.signed({"action": "keys.mint", "voice": voice, "label": label.strip()}, perform)
+        self.signed({"action": "keys.mint", "voice": voice, "label": label}, perform)
         self._show_secret(minted["id"], minted["secret"])
 
     def keys_revoke(self, key_id: str) -> None:
@@ -127,7 +139,7 @@ class Admin:
 
     def keys_rotate(self, key_id: str, label: str | None) -> None:
         old = self._active_key(key_id)
-        label = (label or old["label"] or "").strip() or f"rotated from {key_id}"
+        label = plain_text(label or old["label"] or f"rotated from {key_id}", "a key label")
         minted = {}
 
         def perform(a):
@@ -147,8 +159,7 @@ class Admin:
         self._show_secret(minted["id"], minted["secret"])
 
     def redact(self, ref: str, reason: str) -> None:
-        if not reason.strip():
-            raise Refused("a redaction needs a reason")
+        reason = plain_text(reason, "a redaction reason")
         entry_id = svc.resolve_id(self.conn, ref)
         policy = load_policy(self.s.policy_path)
         row = self.conn.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
@@ -162,13 +173,17 @@ class Admin:
             result.update(svc.redact(self.conn, policy, key_id, a["id"], a["reason"]))
             return f"redacted {a['id']}, tombstone {result['tombstone']}"
 
-        self.signed({"action": "redact", "id": entry_id, "reason": reason.strip()}, perform)
+        self.signed({"action": "redact", "id": entry_id, "reason": reason}, perform)
         self.out(f"redacted {entry_id}; tombstone {result['tombstone']}")
         if result["flagged_for_review"]:
             self.out("flagged for review: " + " ".join(result["flagged_for_review"]))
 
     def policy_reload(self) -> None:
         policy = load_policy(self.s.policy_path)  # refuses an invalid file before anything is signed
+        # The signature covers a hash, so show the admin the exact bytes it stands for.
+        self.out(f"Policy file {self.s.policy_path}, sha256 {policy.sha256}:\n")
+        self.out(open(self.s.policy_path, encoding="utf-8").read())
+        self.out("--- end of policy file ---\n")
 
         def perform(a):
             current = load_policy(self.s.policy_path)

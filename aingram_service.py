@@ -68,8 +68,29 @@ def _entry(conn, entry_id: str):
     return conn.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
 
 
-def _superseded_ids(conn) -> set[str]:
-    return {r[0] for r in conn.execute("SELECT DISTINCT supersedes FROM entries WHERE supersedes IS NOT NULL")}
+# Live = not redacted and not retired by a later entry. Indexed (entries_supersedes).
+LIVE = ("{t}.redacted_at IS NULL AND NOT EXISTS "
+        "(SELECT 1 FROM entries s WHERE s.supersedes = {t}.id)")
+SCAN_PAGE = 200
+SCAN_MAX = 5000  # rows examined per recall, whatever the filters drop
+
+
+def _visible(conn, policy: Policy, voice: str, ref: str):
+    """The entry row for ref if this voice may read it. Unreadable and missing
+    entries get the identical refusal, so nothing reveals what exists."""
+    row = _entry(conn, resolve_id(conn, ref))
+    if not policy.check_read(voice, row["subject"]):
+        raise ServiceError(f"no entry {ref}")
+    return row
+
+
+def _readable_ids(conn, policy: Policy, voice: str, ids) -> list[str]:
+    out = []
+    for entry_id in ids:
+        row = conn.execute("SELECT subject FROM entries WHERE id = ?", (entry_id,)).fetchone()
+        if row is not None and policy.check_read(voice, row["subject"]):
+            out.append(short(entry_id))
+    return out
 
 
 def _hit(row) -> dict:
@@ -128,23 +149,27 @@ def ensure_admin_key(conn, admin_address: str) -> str:
 # ---------------------------------------------------------------- policy approval
 
 def approved_policy_hash(conn, server_name: str, admin_address: str) -> str | None:
-    """sha256 of the policy most recently approved by a signed `policy reload`,
-    re-verified against the admin address. None if nothing is approved."""
-    rows = conn.execute(
-        """SELECT a.message, a.signature FROM admin_log d
-           JOIN admin_log a ON a.nonce = d.nonce AND a.event = 'authorized'
-           WHERE d.event = 'done' AND d.action LIKE ?
-           ORDER BY d.log_id DESC LIMIT 1""",
-        (POLICY_RELOAD_PREFIX + "%",)).fetchall()
-    if not rows:
-        return None
-    action = admin_auth.verify_logged(rows[0]["message"], rows[0]["signature"], server_name, admin_address)
-    return action.get("sha256")
+    """sha256 of the policy most recently approved by a signed `policy reload`.
+
+    Only signed rows count, and "most recent" is the signed Issued time, not row
+    order: unsigned rows (done/failed events, log ids) are trivially insertable by
+    anyone who can write the file, so they must not be able to pick an older
+    approval. Every candidate signature is re-verified; one bad row fails loudly.
+    None if nothing is approved."""
+    best = None
+    for row in conn.execute(
+            "SELECT message, signature FROM admin_log WHERE event = 'authorized' AND action LIKE ?",
+            (POLICY_RELOAD_PREFIX + "%",)):
+        action = admin_auth.verify_logged(row["message"], row["signature"], server_name, admin_address)
+        issued = admin_auth.parse_message(row["message"])["issued"]
+        if best is None or issued > best[0]:
+            best = (issued, action.get("sha256"))
+    return best[1] if best else None
 
 
 def policy_approval_marker(conn) -> int:
     """Changes whenever a new policy approval is logged; cheap to poll."""
-    row = conn.execute("SELECT MAX(log_id) FROM admin_log WHERE event = 'done' AND action LIKE ?",
+    row = conn.execute("SELECT MAX(log_id) FROM admin_log WHERE event = 'authorized' AND action LIKE ?",
                        (POLICY_RELOAD_PREFIX + "%",)).fetchone()
     return row[0] or 0
 
@@ -194,13 +219,10 @@ def write(conn, policy: Policy, key_id: str, *, subject: str, kind: str, excerpt
                 raise ServiceError(decision.reason)
         full_refs = []
         for ref in refs:
-            target = _entry(conn, resolve_id(conn, ref))
-            if not policy.check_read(voice, target["subject"]):
-                raise ServiceError(f"no entry {ref}")
-            full_refs.append(target["id"])
+            full_refs.append(_visible(conn, policy, voice, ref)["id"])
         full_supersedes = None
         if supersedes:
-            target = _entry(conn, resolve_id(conn, supersedes))
+            target = _visible(conn, policy, voice, supersedes)
             decision = policy.check_supersede(voice, subject, target)
             if not decision:
                 raise ServiceError(decision.reason)
@@ -222,8 +244,8 @@ def write(conn, policy: Policy, key_id: str, *, subject: str, kind: str, excerpt
 
 def redact(conn, policy: Policy, key_id: str, target: str, reason: str) -> dict:
     voice = core._voice_for(conn, key_id)
-    target_id = resolve_id(conn, target)
-    row = _entry(conn, target_id)
+    row = _visible(conn, policy, voice, target)
+    target_id = row["id"]
     decision = policy.check_redact(voice, row)
     if not decision:
         raise ServiceError(decision.reason)
@@ -232,29 +254,32 @@ def redact(conn, policy: Policy, key_id: str, target: str, reason: str) -> dict:
     result = core.redact(conn, target_id=target_id, by_key_id=key_id, reason=reason)
     # Anything that leaned on the forgotten entry is flagged for review, never removed automatically.
     flagged = [r["id"] for r in conn.execute(
-        """SELECT id, refs FROM entries
+        """SELECT id FROM entries
            WHERE redacted_at IS NULL AND kind != 'redaction'
              AND (supersedes = ? OR refs LIKE ?) ORDER BY seq""",
         (target_id, f'%"{target_id}"%'))]
-    return {"tombstone": short(result["tombstone"]), "flagged_for_review": [short(f) for f in flagged],
+    return {"tombstone": short(result["tombstone"]),
+            "flagged_for_review": _readable_ids(conn, policy, voice, flagged),
             "head": head(conn)}
 
 
 # ---------------------------------------------------------------- read / recall
 
 def read(conn, policy: Policy, voice: str, ref: str, now: datetime | None = None) -> dict:
-    entry_id = resolve_id(conn, ref)
-    row = _entry(conn, entry_id)
-    if not policy.check_read(voice, row["subject"]):
-        raise ServiceError(f"no entry {ref}")  # same answer as a missing entry
-    superseded_by = [short(r[0]) for r in conn.execute(
-        "SELECT id FROM entries WHERE supersedes = ? ORDER BY seq", (entry_id,))]
+    row = _visible(conn, policy, voice, ref)
+    entry_id = row["id"]
+
+    def link(target):  # shown only where it points at something this voice may read
+        return (_readable_ids(conn, policy, voice, [target]) or [None])[0] if target else None
+
+    superseded_by = _readable_ids(conn, policy, voice, [r[0] for r in conn.execute(
+        "SELECT id FROM entries WHERE supersedes = ? ORDER BY seq", (entry_id,))])
     out = {
         "id": entry_id, "seq": row["seq"], "ts": row["ts"], "voice": row["voice"],
         "key_id": row["key_id"], "subject": row["subject"], "kind": row["kind"],
         "pinned": bool(row["pinned"]), "untrusted_ctx": row["untrusted_ctx"],
-        "prev": short(row["prev_hash"]), "supersedes": short(row["supersedes"]),
-        "superseded_by": superseded_by, "refs": [short(r) for r in json.loads(row["refs"])],
+        "prev": link(row["prev_hash"]), "supersedes": link(row["supersedes"]),
+        "superseded_by": superseded_by, "refs": _readable_ids(conn, policy, voice, json.loads(row["refs"])),
     }
     if row["redacted_at"] is not None:
         out.update(redacted_at=row["redacted_at"], excerpt=None, keywords=None, body=None)
@@ -282,35 +307,36 @@ def recall(conn, policy: Policy, voice: str, *, subject: str | None = None, quer
     if not isinstance(limit, int) or limit < 1:
         raise ServiceError("limit must be a positive integer")
     limit = min(limit, policy.limits["recall_max"])
-    superseded = _superseded_ids(conn)
-    hits = []
+    reserved = tuple(policy.reserved_kinds)
+    live = f"{LIVE.format(t='e')} AND e.kind NOT IN ({','.join('?' * len(reserved))})"
     if subject is not None:
         subtree = subject.endswith("/**")
         base = subject[:-3] if subtree else subject
         if subtree:
-            rows = conn.execute(
-                """SELECT * FROM entries WHERE (subject = ? OR substr(subject, 1, ?) = ?)
-                   AND redacted_at IS NULL ORDER BY seq DESC""",
-                (base, len(base) + 1, base + "/"))
+            where, args = "(e.subject = ? OR substr(e.subject, 1, ?) = ?)", (base, len(base) + 1, base + "/")
         else:
-            rows = conn.execute(
-                "SELECT * FROM entries WHERE subject = ? AND redacted_at IS NULL ORDER BY seq DESC", (base,))
+            where, args = "e.subject = ?", (base,)
+        sql = f"SELECT e.* FROM entries e WHERE {where} AND {live}"
+        order = "e.seq DESC"
         mode = "subject"
     else:
-        rows = conn.execute(
-            """SELECT e.* FROM entries_fts JOIN entries e ON e.seq = entries_fts.rowid
-               WHERE entries_fts MATCH ? AND e.redacted_at IS NULL
-               ORDER BY bm25(entries_fts)""", (_fts_query(query),))
+        sql = (f"SELECT e.* FROM entries_fts JOIN entries e ON e.seq = entries_fts.rowid "
+               f"WHERE entries_fts MATCH ? AND {live}")
+        args = (_fts_query(query),)
+        order = "bm25(entries_fts)"
         mode = "query"
-    for row in rows:
-        if row["id"] in superseded or row["kind"] in policy.reserved_kinds:
-            continue
-        if kind is not None and row["kind"] != kind:
-            continue
-        if not policy.check_read(voice, row["subject"]):
-            continue
-        hits.append(_hit(row))
-        if len(hits) >= limit:
+    args = (*args, *reserved)
+    if kind is not None:
+        sql, args = sql + " AND e.kind = ?", (*args, kind)
+    hits = []
+    for offset in range(0, SCAN_MAX, SCAN_PAGE):
+        page = conn.execute(f"{sql} ORDER BY {order} LIMIT {SCAN_PAGE} OFFSET {offset}", args).fetchall()
+        for row in page:
+            if policy.check_read(voice, row["subject"]):
+                hits.append(_hit(row))
+                if len(hits) >= limit:
+                    return {"mode": mode, "hits": hits, "head": head(conn)}
+        if len(page) < SCAN_PAGE:
             break
     return {"mode": mode, "hits": hits, "head": head(conn)}
 
@@ -319,31 +345,22 @@ def recall(conn, policy: Policy, voice: str, *, subject: str | None = None, quer
 
 def boot(conn, policy: Policy, voice: str, now: datetime | None = None) -> dict:
     now = _now(now)
-    superseded = _superseded_ids(conn)
     tail_n = policy.boot["recent_tail"]
-    live = lambda r: r["id"] not in superseded and r["kind"] not in policy.reserved_kinds  # noqa: E731
+    reserved = tuple(policy.reserved_kinds)
+    live = f"{LIVE.format(t='e')} AND e.kind NOT IN ({','.join('?' * len(reserved))})"
     out: dict = {"voice": voice}
 
     if voice == "brain":
         state = conn.execute("SELECT last_boot_seq FROM voice_state WHERE voice = 'brain'").fetchone()
         since = (state["last_boot_seq"] if state else None) or 0
-        core_rows = conn.execute(
-            """SELECT * FROM entries WHERE voice = 'brain' AND pinned = 1 AND redacted_at IS NULL
-               ORDER BY seq""").fetchall()
         out["core"] = [{"id": short(r["id"]), "subject": r["subject"], "excerpt": r["excerpt"]}
-                       for r in core_rows if live(r)]
-        tail = []
-        for r in conn.execute(
-                """SELECT * FROM entries WHERE voice = 'brain' AND pinned = 0 AND redacted_at IS NULL
-                   ORDER BY seq DESC LIMIT ?""", (tail_n * 4,)):
-            if live(r):
-                tail.append(_hit(r))
-            if len(tail) >= tail_n:
-                break
-        out["recent"] = tail
-        code_rows = conn.execute(
-            "SELECT id, subject FROM entries WHERE voice = 'code' AND seq > ? ORDER BY seq", (since,)).fetchall()
-        out["code_digest"] = _digest(code_rows)
+                       for r in conn.execute(
+                           f"SELECT e.* FROM entries e WHERE e.voice = 'brain' AND e.pinned = 1 AND {live} "
+                           f"ORDER BY e.seq", reserved)]
+        out["recent"] = [_hit(r) for r in conn.execute(
+            f"SELECT e.* FROM entries e WHERE e.voice = 'brain' AND e.pinned = 0 AND {live} "
+            f"ORDER BY e.seq DESC LIMIT ?", (*reserved, tail_n))]
+        out["code_digest"] = _digest(conn, since)
         if policy.boot["redaction_notice"]:
             n = conn.execute("SELECT COUNT(*) FROM entries WHERE kind = 'redaction' AND seq > ?",
                              (since,)).fetchone()[0]
@@ -356,25 +373,28 @@ def boot(conn, policy: Policy, voice: str, now: datetime | None = None) -> dict:
                                                 last_boot_seq = excluded.last_boot_seq""",
             (_iso(now), last_seq))
     else:
-        rows = conn.execute(
-            "SELECT * FROM entries WHERE voice = ? AND redacted_at IS NULL ORDER BY seq DESC LIMIT ?",
-            (voice, tail_n)).fetchall()
-        out["recent"] = [_hit(r) for r in rows if live(r)]
+        out["recent"] = [_hit(r) for r in conn.execute(
+            f"SELECT e.* FROM entries e WHERE e.voice = ? AND {live} ORDER BY e.seq DESC LIMIT ?",
+            (voice, *reserved, tail_n))]
 
     out["writes_left_today"] = policy.headroom(conn, voice, now)
     out["head"] = head(conn)
     return out
 
 
-def _digest(rows) -> str:
-    if not rows:
+def _digest(conn, since: int) -> str:
+    """One line about the code voice's entries since the brain's last boot, counted in SQL."""
+    groups = conn.execute(
+        """SELECT CASE WHEN instr(subject, '/') > 0 THEN substr(subject, 1, instr(subject, '/') - 1)
+                       ELSE subject END AS top, COUNT(*) AS n
+           FROM entries WHERE voice = 'code' AND seq > ? GROUP BY top ORDER BY n DESC, top""",
+        (since,)).fetchall()
+    n = sum(g["n"] for g in groups)
+    if not n:
         return "Code logged nothing since you last woke."
-    counts: dict[str, int] = {}
-    for r in rows:
-        top = r["subject"].split("/", 1)[0]
-        counts[top] = counts.get(top, 0) + 1
-    parts = ", ".join(f"{k} ×{v}" for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
-    ids = " ".join(short(r["id"]) for r in rows[-10:])
-    more = f" (latest 10 of {len(rows)})" if len(rows) > 10 else ""
-    n = len(rows)
-    return f"Code logged {n} entr{'y' if n == 1 else 'ies'} since you last woke: {parts}. Ids{more}: {ids}"
+    parts = ", ".join(f"{g['top']} ×{g['n']}" for g in groups)
+    latest = [short(r[0]) for r in conn.execute(
+        "SELECT id FROM entries WHERE voice = 'code' AND seq > ? ORDER BY seq DESC LIMIT 10", (since,))]
+    more = f" (latest 10 of {n})" if n > 10 else ""
+    return (f"Code logged {n} entr{'y' if n == 1 else 'ies'} since you last woke: {parts}. "
+            f"Ids{more}: {' '.join(reversed(latest))}")

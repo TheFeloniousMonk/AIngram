@@ -11,8 +11,10 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 
 class ConfigError(Exception):
@@ -50,6 +52,10 @@ class Settings:
     port: int
     public_url: str | None
 
+    @property
+    def loopback_bind(self) -> bool:
+        return self.host in LOOPBACK
+
     @classmethod
     def from_env(cls, env=None, *, need_admin: bool = False, need_server: bool = False) -> "Settings":
         env = os.environ if env is None else env
@@ -62,7 +68,11 @@ class Settings:
         public_url = _get(env, "AINGRAM_PUBLIC_URL", need_server)
         if public_url is not None:
             public_url = public_url.rstrip("/")
-            if not public_url.startswith(("https://", "http://127.0.0.1", "http://localhost")):
+            parsed = urlparse(public_url)
+            if (not parsed.hostname or parsed.path or parsed.query or parsed.fragment
+                    or parsed.username or parsed.password):
+                raise ConfigError("AINGRAM_PUBLIC_URL must be a bare origin such as https://host")
+            if parsed.scheme != "https" and not (parsed.scheme == "http" and parsed.hostname in LOOPBACK):
                 raise ConfigError("AINGRAM_PUBLIC_URL must be https:// (plain http only for localhost)")
         return cls(
             db_path=_get(env, "AINGRAM_DB", True),

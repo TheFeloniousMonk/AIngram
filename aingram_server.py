@@ -1,0 +1,245 @@
+"""AIngram MCP server: five tools over streamable HTTP, bearer-key auth.
+
+Run behind a TLS reverse proxy:  python aingram_server.py
+Settings come from the environment (.env.example). The server refuses to
+start unless the policy file is valid and its exact bytes were approved by a
+signed `aingram_admin.py policy reload`. A new approval is picked up on the
+next request; an unapproved edit to the file is ignored and logged.
+
+The caller's voice comes only from their key. No tool argument can set it.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import sqlite3
+import sys
+import threading
+from contextlib import contextmanager
+from urllib.parse import urlparse
+
+import anyio.to_thread
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.auth.provider import AccessToken
+from mcp.server.auth.settings import AuthSettings
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import ToolAnnotations
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+import aingram_core as core
+import aingram_service as svc
+from aingram_config import ConfigError, Settings, load_env
+from aingram_policy import Policy, PolicyError
+
+log = logging.getLogger("aingram")
+
+INSTRUCTIONS = """AIngram is a long-term memory: an append-only, hash-chained log.
+Call boot first in a session: it returns the pinned core, the recent tail and a digest of other voices' entries.
+recall finds entries by subject (folded current state) or by full-text query; it returns excerpts only.
+read returns one full entry by id (a 12-character prefix is enough).
+write appends an entry. Set untrusted_ctx (for example 'web') when outside text was in your context.
+redact forgets an entry's content, leaving a tombstone. Every response includes the chain head."""
+
+
+class AIngram:
+    """Shared state: settings and the currently approved policy."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self._lock = threading.Lock()
+        with self.connect() as conn:
+            self.policy = svc.load_approved_policy(conn, settings.policy_path,
+                                                   settings.server_name, settings.admin_address)
+            self._marker = svc.policy_approval_marker(conn)
+        log.info("policy %s loaded", self.policy.sha256[:12])
+
+    @contextmanager
+    def connect(self):
+        conn = core.connect(self.settings.db_path)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    def current_policy(self, conn) -> Policy:
+        marker = svc.policy_approval_marker(conn)
+        if marker != self._marker:
+            with self._lock:
+                if marker != self._marker:
+                    try:
+                        self.policy = svc.load_approved_policy(conn, self.settings.policy_path,
+                                                               self.settings.server_name,
+                                                               self.settings.admin_address)
+                        log.info("policy %s approved and loaded", self.policy.sha256[:12])
+                    except PolicyError as e:
+                        log.error("new policy approval not applied, keeping %s: %s",
+                                  self.policy.sha256[:12], e)
+                    self._marker = marker
+        return self.policy
+
+    def lookup_key(self, secret: str):
+        if not svc.SECRET_RE.match(secret or ""):
+            return None  # malformed tokens never touch the database
+        with self.connect() as conn:
+            row = svc.authenticate(conn, secret)
+            return None if row is None else (row["key_id"], row["voice"])
+
+
+class KeyVerifier:
+    """Bearer secrets are looked up by SHA-256. Unknown or revoked keys get a 401."""
+
+    def __init__(self, app: AIngram):
+        self.app = app
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        found = await anyio.to_thread.run_sync(self.app.lookup_key, token)
+        if found is None:
+            return None
+        key_id, voice = found
+        # Keep a hash, not the secret, in the request context.
+        return AccessToken(token=hashlib.sha256(token.encode()).hexdigest(), client_id=key_id, scopes=[voice])
+
+
+def _caller(ctx: Context) -> tuple[str, str]:
+    """(key_id, voice) of the authenticated caller for this request."""
+    token = None
+    request = getattr(ctx.request_context, "request", None)
+    user = request.scope.get("user") if isinstance(request, Request) else None
+    if user is not None and hasattr(user, "access_token"):
+        token = user.access_token
+    token = token or get_access_token()
+    if token is None or not token.scopes or token.scopes[0] not in ("brain", "code"):
+        raise ToolError("not authenticated")
+    return token.client_id, token.scopes[0]
+
+
+def _json(obj) -> str:
+    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+
+
+def build_server(app: AIngram) -> MCPServer:
+    public = app.settings.public_url
+    server = MCPServer(
+        name="aingram",
+        instructions=INSTRUCTIONS,
+        token_verifier=KeyVerifier(app),
+        auth=AuthSettings(issuer_url=public, resource_server_url=f"{public}/mcp",
+                          validate_token_resource=False),
+    )
+
+    def run(ctx: Context, fn):
+        key_id, voice = _caller(ctx)
+        try:
+            with app.connect() as conn:
+                return _json(fn(conn, app.current_policy(conn), key_id, voice))
+        except (svc.ServiceError, core.AIngramError) as e:
+            raise ToolError(str(e)) from None
+        except sqlite3.IntegrityError as e:
+            raise ToolError(f"refused by the store: {e}") from None
+
+    readonly = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+
+    @server.tool(annotations=readonly, structured_output=False)
+    def boot(ctx: Context) -> str:
+        """Start of session. Returns the pinned core, the recent tail of your own entries,
+        a one-line digest of what the other voice logged since you last woke, how many
+        writes you have left today, and the chain head. About 1.5k tokens."""
+        return run(ctx, lambda c, p, k, v: svc.boot(c, p, v))
+
+    @server.tool(annotations=readonly, structured_output=False)
+    def recall(ctx: Context, subject: str | None = None, query: str | None = None,
+               kind: str | None = None, limit: int = 10) -> str:
+        """Find entries. Give exactly one of:
+        subject: a path like 'people/sister' returns that subject's current state
+                 (redacted and superseded entries dropped), newest first; 'projects/**' includes everything below it.
+        query: plain words, full-text matched against subject, excerpt, keywords and body.
+        Optional kind filter and limit (default 10). Returns excerpts with ids; use read for a full body."""
+        return run(ctx, lambda c, p, k, v: svc.recall(c, p, v, subject=subject, query=query,
+                                                      kind=kind, limit=limit))
+
+    @server.tool(annotations=readonly, structured_output=False)
+    def read(ctx: Context, id: str) -> str:
+        """Read one full entry by id or unique id prefix (12 characters is plenty):
+        header, excerpt, keywords, body, prev, what it supersedes and what supersedes it.
+        Reading counts as deliberate use and slows the entry's fading."""
+        return run(ctx, lambda c, p, k, v: svc.read(c, p, v, id))
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
+                                             idempotentHint=False, openWorldHint=False),
+                 structured_output=False)
+    def write(ctx: Context, subject: str, kind: str, excerpt: str, keywords: list[str] | None = None,
+              body: str = "", supersedes: str | None = None, refs: list[str] | None = None,
+              pinned: bool = False, untrusted_ctx: str | None = None) -> str:
+        """Append an entry.
+        subject: path-like retrieval key, e.g. 'aingram/build'. kind: e.g. fact, breadcrumb,
+        correction, decision, shipped, gotcha. excerpt: up to 300 characters, what boot and recall show.
+        keywords: free-form list. body: full text, any length within the policy limit.
+        supersedes: id of the entry in the same subject this one corrects or replaces.
+        refs: ids this entry cites (citing an entry reinforces it).
+        pinned: always in the brain's boot core (brain only).
+        untrusted_ctx: where outside text in your context came from ('web', 'email', ...), else omit.
+        Returns the new id, seq and chain head."""
+        return run(ctx, lambda c, p, k, v: svc.write(
+            c, p, k, subject=subject, kind=kind, excerpt=excerpt, keywords=keywords or [],
+            body=body, supersedes=supersedes, refs=refs or [], pinned=pinned, untrusted_ctx=untrusted_ctx))
+
+    @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True,
+                                             idempotentHint=False, openWorldHint=False),
+                 structured_output=False)
+    def redact(ctx: Context, id: str, reason: str) -> str:
+        """Forget an entry's content. Its header stays so the chain still verifies, a tombstone
+        records that something was removed (never what), and the reason is kept only for the admin.
+        Entries that superseded or cited it are listed for review, not removed."""
+        return run(ctx, lambda c, p, k, v: svc.redact(c, p, k, id, reason))
+
+    @server.custom_route("/healthz", methods=["GET"], include_in_schema=False)
+    async def healthz(_request: Request) -> JSONResponse:
+        return JSONResponse({"ok": True})
+
+    return server
+
+
+def transport_security(settings: Settings) -> TransportSecuritySettings:
+    parsed = urlparse(settings.public_url)
+    host = parsed.netloc
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[host, f"127.0.0.1:{settings.port}", f"localhost:{settings.port}"],
+        allowed_origins=[f"{parsed.scheme}://{host}"],
+    )
+
+
+def create_app(settings: Settings):
+    """The ASGI app. Raises PolicyError if the policy is invalid or unapproved."""
+    app = AIngram(settings)
+    server = build_server(app)
+    return server.streamable_http_app(
+        streamable_http_path="/mcp", json_response=True, stateless_http=True,
+        transport_security=transport_security(settings), host=settings.host)
+
+
+def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    try:
+        load_env()
+        settings = Settings.from_env(need_server=True)
+        if not settings.loopback_bind:
+            log.warning("listening on %s, not loopback: make sure only the TLS proxy can reach it",
+                        settings.host)
+        asgi = create_app(settings)
+    except (ConfigError, PolicyError) as e:
+        log.error("refusing to start: %s", e)
+        return 1
+    import uvicorn
+    uvicorn.run(asgi, host=settings.host, port=settings.port, log_level="info",
+                proxy_headers=True, forwarded_allow_ips="127.0.0.1")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

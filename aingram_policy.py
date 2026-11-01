@@ -25,6 +25,7 @@ REDACT_MODES = ("own", "none", "any")
 KIND_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 CTX_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,31}$")
 SUBJECT_MAX = 200
+MAX_COMMAND_TTL = 3600
 
 
 class PolicyError(Exception):
@@ -51,6 +52,10 @@ def refuse(reason: str) -> Decision:
 
 def nfc(s: str) -> str:
     return unicodedata.normalize("NFC", s)
+
+
+def fold(s: str) -> str:
+    return unicodedata.normalize("NFKC", s).casefold()
 
 
 def subject_problem(subject: str) -> str | None:
@@ -89,9 +94,10 @@ def _check_pattern(pattern, where: str) -> str:
 def matches(pattern: str, subject: str) -> bool:
     """'**' matches everything; 'a/**' matches 'a' and anything below it;
     anything else matches exactly. Comparison is case-insensitive, so
-    'People/x' cannot slip past a rule written for 'people/**'."""
-    subject = nfc(subject).casefold()
-    pattern = nfc(pattern).casefold()
+    'People/x' cannot slip past a rule written for 'people/**'. NFKC folds
+    compatibility lookalikes (fullwidth letters, ligatures) onto their plain form."""
+    subject = fold(subject)
+    pattern = fold(pattern)
     if pattern == "**":
         return True
     if pattern.endswith("/**"):
@@ -220,7 +226,7 @@ class Policy:
         stay inside the subject, and only the brain may retire another voice's entry."""
         if target["kind"] in self.reserved_kinds:
             return refuse("server records cannot be superseded")
-        if nfc(target["subject"]).casefold() != nfc(subject).casefold():
+        if fold(target["subject"]) != fold(subject):
             return refuse("an entry can only supersede an entry in the same subject")
         if voice != "brain" and target["voice"] != voice:
             return refuse(f"the {voice} voice may supersede only entries it wrote")
@@ -317,6 +323,8 @@ def parse_policy(data: bytes) -> Policy:
 
     admin = _exact_keys(raw["admin"], {"command_ttl_seconds"}, "admin")
     ttl = _pos_int(admin["command_ttl_seconds"], "admin.command_ttl_seconds")
+    if ttl > MAX_COMMAND_TTL:
+        raise PolicyError(f"admin.command_ttl_seconds: at most {MAX_COMMAND_TTL}")
 
     decay = _exact_keys(raw["decay"], DECAY_KEYS, "decay")
     hl = decay["half_life_days"]

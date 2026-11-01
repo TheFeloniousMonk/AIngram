@@ -130,7 +130,7 @@ class SelfAndReserved(Fixture):
 
 class InputShape(Fixture):
     def test_bad_subjects(self):
-        for subject in ("", " a", "a/", "/a", "a//b", "a/../b", "a/*", "a​b", "a\nb", "x" * 201):
+        for subject in ("", " a", "a/", "/a", "a//b", "a/../b", "a/*", "a" + chr(0x200B) + "b", "a" + chr(10) + "b", "x" * 201):
             self.assertFalse(self.p.check_write("brain", subject, "fact"), repr(subject))
 
     def test_bad_kinds(self):
@@ -169,6 +169,34 @@ class Supersede(Fixture):
     def test_tombstones_cannot_be_superseded(self):
         t = {"voice": "brain", "kind": "redaction", "subject": "_redactions"}
         self.no(self.p.check_supersede("brain", "_redactions", t), "server records")
+
+
+class Lookalikes(unittest.TestCase):
+    def test_compatibility_forms_fold_onto_brain_only(self):
+        raw = example_raw()
+        raw["voices"]["code"]["may_write_subjects"] = ["**"]
+        p = parse(raw)
+        for subject in (chr(0xFF53) + "elf/x", chr(0xFF30) + "eople/x", "SELF/x", "People/x"):
+            self.assertFalse(p.check_write("code", subject, "decision"), subject)
+
+
+class Config(unittest.TestCase):
+    def settings(self, **env):
+        from aingram_config import Settings
+        return Settings.from_env({"AINGRAM_DB": "x.db", **env})
+
+    def test_public_url_rules(self):
+        from aingram_config import ConfigError
+        self.assertEqual(self.settings(AINGRAM_PUBLIC_URL="https://a.example/").public_url, "https://a.example")
+        self.settings(AINGRAM_PUBLIC_URL="http://127.0.0.1:9000")
+        for bad in ("http://localhost.evil.com", "http://a.example", "https://a.example/path",
+                    "https://user:pw@a.example", "ftp://a.example", "nonsense"):
+            with self.assertRaises(ConfigError, msg=bad):
+                self.settings(AINGRAM_PUBLIC_URL=bad)
+
+    def test_loopback_flag(self):
+        self.assertTrue(self.settings().loopback_bind)
+        self.assertFalse(self.settings(AINGRAM_HOST="0.0.0.0").loopback_bind)
 
 
 class Reads(Fixture):
@@ -286,6 +314,7 @@ class InvalidFiles(unittest.TestCase):
 
     def test_bad_ttl(self):
         self.bad(lambda r: r["admin"].update(command_ttl_seconds=-1), "command_ttl_seconds")
+        self.bad(lambda r: r["admin"].update(command_ttl_seconds=86400), "at most")
 
     def test_hash_tracks_file_bytes(self):
         a = pol.parse_policy(EXAMPLE.read_bytes())

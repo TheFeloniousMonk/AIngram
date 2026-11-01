@@ -143,7 +143,14 @@ def connect(path: str | os.PathLike) -> sqlite3.Connection:
     if str(path) != ":memory:":
         conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 30000")
-    conn.executescript(SCHEMA_PATH.read_text())
+    # Freed pages are zeroed, so redacted content does not linger in the file.
+    conn.execute("PRAGMA secure_delete = ON")
+    # The schema script takes the write lock; run it only on a store that lacks
+    # it (its last statement creates admin_log_no_update), not on every connect.
+    initialised = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'admin_log_no_update'").fetchone()
+    if initialised is None:
+        conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
     return conn
 
 
@@ -261,10 +268,15 @@ def redact(conn, *, target_id: str, by_key_id: str, reason: str, ts: str | None 
             (target_id, tomb["id"], tomb["ts"], by_key_id, reason.strip()),
         )
         conn.execute("COMMIT")
-        return {"tombstone": tomb["id"], "redacted": target_id}
     except BaseException:
         conn.execute("ROLLBACK")
         raise
+    # Forgetting means gone from disk too: merge the full-text index so the old
+    # terms leave its shadow tables, then fold the WAL (which still holds the
+    # pre-redaction pages) back into the zeroed main file.
+    conn.execute("INSERT INTO entries_fts (entries_fts) VALUES ('optimize')")
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return {"tombstone": tomb["id"], "redacted": target_id}
 
 
 # ---------------------------------------------------------------- verify

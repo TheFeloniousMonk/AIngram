@@ -101,6 +101,15 @@ class Keys(CLI):
             admin.keys_mint("brain", "x")
         self.assertEqual(self.asked, 0)
 
+    def test_labels_cannot_disguise_the_message(self):
+        for label in ("a" + chr(0x2028) + "Server: other", "a" + chr(0x202E) + "b", "a" + chr(10) + "b", "   "):
+            self.assertEqual(self.run_cli("keys", "mint", "--voice", "code", "--label", label), 1, repr(label))
+        self.assertEqual(self.asked, 0)
+
+    def test_reload_shows_the_policy_bytes(self):
+        self.assertEqual(self.run_cli("policy", "reload"), 0)
+        self.assertTrue(any("brain_only_subjects" in l for l in self.lines))
+
     def test_revoke(self):
         secret = self.mint()
         conn = self.db()
@@ -191,6 +200,18 @@ class PolicyApproval(CLI):
                      "('x', 'done', 'n1', '{\"action\":\"policy.reload\"}')")
         with self.assertRaisesRegex(PolicyError, "does not verify"):
             self.load(conn)
+
+    def test_unsigned_rows_cannot_roll_back_the_policy(self):
+        self.assertEqual(self.run_cli("policy", "reload"), 0)
+        conn = self.db()
+        old_nonce = conn.execute("SELECT nonce FROM admin_log WHERE event = 'authorized'").fetchone()[0]
+        self.policy.write_text(self.policy.read_text() + "\n# v2\n")
+        self.assertEqual(self.run_cli("policy", "reload"), 0)
+        v2 = svc.load_policy(self.policy).sha256
+        # A later unsigned 'done' row pointing at the old approval changes nothing.
+        conn.execute("INSERT INTO admin_log (at, event, nonce, action) VALUES "
+                     "('z', 'done', ?, '{\"action\":\"policy.reload\"}')", (old_nonce,))
+        self.assertEqual(svc.approved_policy_hash(conn, SERVER, ADMIN.address), v2)
 
     def test_admin_log_cannot_be_edited(self):
         self.run_cli("policy", "reload")
