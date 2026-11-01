@@ -1,0 +1,26 @@
+# Secrets and deployment configuration
+.env
+.env.*
+!.env.example
+policy.yaml
+
+# Data: the store, its WAL files, exports
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.jsonl
+exports/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

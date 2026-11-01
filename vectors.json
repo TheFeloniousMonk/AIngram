@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "genesis_prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "notes": "Inputs are as passed to append(); <entry N id> means the entry_hash of entry N. Entry 2 is redacted by the tombstone; its header and entry_hash are unchanged.",
+  "entries": [
+    {
+      "input": {
+        "key_id": "k_brain_01",
+        "subject": "people/ada",
+        "kind": "fact",
+        "excerpt": "Ada goes by Ada. Cafe\u0301 regular.",
+        "keywords": [
+          "ada",
+          " identity ",
+          "ada",
+          "Caf\u00e9"
+        ],
+        "body": "Line one.\nLine two with a tab\tand a \"quote\".",
+        "pinned": true,
+        "ts": "2026-11-01T12:00:00.000001Z",
+        "salt": "00112233445566778899aabbccddeeff"
+      },
+      "canonical_content": "{\"body\":\"Line one.\\nLine two with a tab\\tand a \\\"quote\\\".\",\"excerpt\":\"Ada goes by Ada. Caf\u00e9 regular.\",\"keywords\":[\"Caf\u00e9\",\"ada\",\"identity\"],\"salt\":\"00112233445566778899aabbccddeeff\",\"v\":1}",
+      "content_hash": "64c56100ae74b490ad002f90d0d88f8cf309a1445b98d30ba0c080687f644b00",
+      "canonical_header": "{\"content_hash\":\"64c56100ae74b490ad002f90d0d88f8cf309a1445b98d30ba0c080687f644b00\",\"key_id\":\"k_brain_01\",\"kind\":\"fact\",\"pinned\":true,\"prev_hash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"refs\":[],\"seq\":1,\"subject\":\"people/ada\",\"supersedes\":null,\"ts\":\"2026-11-01T12:00:00.000001Z\",\"untrusted_ctx\":null,\"v\":1,\"voice\":\"brain\"}",
+      "entry_hash": "605af9cc3af86fa5b8982c44de5b96f680ec2a0df6e2417613e6f29c7560130e"
+    },
+    {
+      "input": {
+        "key_id": "k_code_01",
+        "subject": "project/docs",
+        "kind": "gotcha",
+        "excerpt": "\\text breaks in some formula renderers; use \\mathrm.",
+        "keywords": [
+          "docs",
+          "latex"
+        ],
+        "body": "Seen 2026-10-26. \ud83d\udc0c",
+        "untrusted_ctx": "web",
+        "ts": "2026-11-01T12:00:01.000002Z",
+        "salt": "ffeeddccbbaa99887766554433221100"
+      },
+      "canonical_content": "{\"body\":\"Seen 2026-10-26. \ud83d\udc0c\",\"excerpt\":\"\\\\text breaks in some formula renderers; use \\\\mathrm.\",\"keywords\":[\"docs\",\"latex\"],\"salt\":\"ffeeddccbbaa99887766554433221100\",\"v\":1}",
+      "content_hash": "70fa3aae406737a4d27c496c99049156e7f84bf3951fedbb99b723e9a6af073a",
+      "canonical_header": "{\"content_hash\":\"70fa3aae406737a4d27c496c99049156e7f84bf3951fedbb99b723e9a6af073a\",\"key_id\":\"k_code_01\",\"kind\":\"gotcha\",\"pinned\":false,\"prev_hash\":\"605af9cc3af86fa5b8982c44de5b96f680ec2a0df6e2417613e6f29c7560130e\",\"refs\":[],\"seq\":2,\"subject\":\"project/docs\",\"supersedes\":null,\"ts\":\"2026-11-01T12:00:01.000002Z\",\"untrusted_ctx\":\"web\",\"v\":1,\"voice\":\"code\"}",
+      "entry_hash": "454b4901eb92532b38946244097fae665fc26eb00d662d48a16dc13ac6cf4868"
+    },
+    {
+      "input": {
+        "key_id": "k_brain_01",
+        "subject": "people/ada",
+        "kind": "correction",
+        "excerpt": "Ada moved to Lisbon.",
+        "keywords": [],
+        "body": "",
+        "supersedes": "<entry 1 id>",
+        "refs": [
+          "<entry 2 id>",
+          "<entry 1 id>"
+        ],
+        "ts": "2026-11-01T12:00:02.000003Z",
+        "salt": "0123456789abcdef0123456789abcdef"
+      },
+      "canonical_content": "{\"body\":\"\",\"excerpt\":\"Ada moved to Lisbon.\",\"keywords\":[],\"salt\":\"0123456789abcdef0123456789abcdef\",\"v\":1}",
+      "content_hash": "fecc3639d296ebef5a27b77db56add6ac0cf07a4c5ed225eabba66ad0e8809bf",
+      "canonical_header": "{\"content_hash\":\"fecc3639d296ebef5a27b77db56add6ac0cf07a4c5ed225eabba66ad0e8809bf\",\"key_id\":\"k_brain_01\",\"kind\":\"correction\",\"pinned\":false,\"prev_hash\":\"454b4901eb92532b38946244097fae665fc26eb00d662d48a16dc13ac6cf4868\",\"refs\":[\"454b4901eb92532b38946244097fae665fc26eb00d662d48a16dc13ac6cf4868\",\"605af9cc3af86fa5b8982c44de5b96f680ec2a0df6e2417613e6f29c7560130e\"],\"seq\":3,\"subject\":\"people/ada\",\"supersedes\":\"605af9cc3af86fa5b8982c44de5b96f680ec2a0df6e2417613e6f29c7560130e\",\"ts\":\"2026-11-01T12:00:02.000003Z\",\"untrusted_ctx\":null,\"v\":1,\"voice\":\"brain\"}",
+      "entry_hash": "33294cdc681dbd5ac9f5212065706ef28d08b28f97c701f82860af0cff491a4a"
+    }
+  ],
+  "redaction": {
+    "target": "454b4901eb92532b38946244097fae665fc26eb00d662d48a16dc13ac6cf4868",
+    "tombstone_canonical_header": "{\"content_hash\":\"27c174cb3273c8ea3203a4778625aee6af9fb858e0236557065512aa072ab494\",\"key_id\":\"k_brain_01\",\"kind\":\"redaction\",\"pinned\":false,\"prev_hash\":\"33294cdc681dbd5ac9f5212065706ef28d08b28f97c701f82860af0cff491a4a\",\"refs\":[\"454b4901eb92532b38946244097fae665fc26eb00d662d48a16dc13ac6cf4868\"],\"seq\":4,\"subject\":\"_redactions\",\"supersedes\":null,\"ts\":\"2026-11-01T12:00:03.000004Z\",\"untrusted_ctx\":null,\"v\":1,\"voice\":\"brain\"}",
+    "tombstone_entry_hash": "e08c7dc54572d311d7dde0e84f8e2cb0ab4eaffc05a4bf534986ea2890c245d0",
+    "final_head": "e08c7dc54572d311d7dde0e84f8e2cb0ab4eaffc05a4bf534986ea2890c245d0"
+  }
+}
