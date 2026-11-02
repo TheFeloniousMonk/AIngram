@@ -42,10 +42,15 @@
   </nav>
 
   <section class="tab" id="tab-overview">
-    <div class="grid" id="stats"></div>
+    <div class="card glance" id="glance"></div>
+    <div class="card">
+      <h2>Latest</h2>
+      <div class="latest" id="latest"></div>
+    </div>
     <div class="card">
       <h2>Chain</h2>
-      <p class="muted">Re-derives every hash in the log and checks the chain is unbroken.</p>
+      <div class="facts" id="chain-facts"></div>
+      <p class="muted">Verifying re-derives every hash in the log and checks the chain is unbroken.</p>
       <div class="row">
         <button id="verify">Verify now</button>
         <a class="button ghost" id="export" href="/admin/api/export">Download export</a>

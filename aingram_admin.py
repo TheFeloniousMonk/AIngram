@@ -99,10 +99,19 @@ def overview(conn, policy: Policy | None) -> dict:
     counts = {r["voice"]: r["n"] for r in conn.execute(
         "SELECT voice, COUNT(*) AS n FROM entries WHERE kind != 'redaction' GROUP BY voice")}
     redacted = conn.execute("SELECT COUNT(*) FROM entries WHERE redacted_at IS NOT NULL").fetchone()[0]
-    active = conn.execute("SELECT COUNT(*) FROM keys WHERE revoked_at IS NULL AND secret_hash IS NOT NULL"
-                          ).fetchone()[0]
+    # Connections: code keys, and the brain's connector grants (not import keys, not the admin row).
+    active = conn.execute(
+        "SELECT COUNT(*) FROM keys WHERE revoked_at IS NULL AND (secret_hash IS NOT NULL "
+        "OR (voice = 'brain' AND key_id NOT LIKE 'k\\_brain\\_imp\\_%' ESCAPE '\\'))").fetchone()[0]
+    latest = {}
+    for voice in ("brain", "code"):
+        row = conn.execute(
+            f"SELECT {SALIENCE_COLS} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id "
+            "WHERE e.voice = ? AND e.kind != 'redaction' AND e.redacted_at IS NULL ORDER BY e.seq DESC LIMIT 1",
+            (voice,)).fetchone()
+        latest[voice] = {**_row(row), "id_full": row["id"]} if row else None
     out = {"head": svc.head(conn), "entries": counts, "redacted": redacted, "active_keys": active,
-           "policy": policy.sha256 if policy else None, "setup_needed": policy is None}
+           "latest": latest, "policy": policy.sha256 if policy else None, "setup_needed": policy is None}
     if policy is not None:
         f = faded(conn, policy, limit=1)
         out.update(fade_below=policy.fade_below, faded=f["total"], faded_this_week=f["this_week"])

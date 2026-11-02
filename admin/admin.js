@@ -179,17 +179,39 @@ function setupBanner() {
 async function overview() {
   await refreshMe();
   const m = state.me;
-  const stat = (label, value, cls = "") => h("div", { class: "card stat" }, h("div", { class: "muted" }, label), h("div", { class: `big ${cls}` }, value));
-  fill($("stats"), 
-    stat("Entries by the brain", m.entries.brain || 0),
-    stat("Entries by code", m.entries.code || 0),
-    stat("Forgotten", m.redacted),
-    m.faded !== undefined ? stat("Faded (this week)", `${m.faded} (${m.faded_this_week})`) : null,
-    stat("Active keys", m.active_keys),
-    stat("Chain head", m.head.seq ? `#${m.head.seq} · ${m.head.id}` : "empty", "fit"),
-    stat("Policy", m.policy ? m.policy.slice(0, 12) : "not approved"),
-  );
+  const figure = (value, label) => h("div", { class: "figure" }, h("div", { class: "big" }, value), h("div", { class: "muted" }, label));
+  fill($("glance"),
+    figure(m.entries.brain || 0, "entries by the brain"),
+    figure(m.entries.code || 0, "entries by Code"),
+    figure(m.active_keys, m.active_keys === 1 ? "active connection" : "active connections"));
+
+  const latest = (voice, label) => {
+    const e = m.latest && m.latest[voice];
+    return h("div", { class: "latest-one" },
+      h("div", { class: "meta" }, h("span", { class: `dot ${voice}` }), label),
+      e ? [h("div", { class: "where muted small" }, `${e.subject} · ${e.kind} · ${day(e.ts)}`),
+           h("p", { class: "ex" }, e.excerpt),
+           h("button", { class: "link", onclick: () => openInMemory(e.id) }, "Open in Memory →")]
+        : h("p", { class: "muted" }, voice === "brain" ? "The brain hasn't written anything yet." : "Code hasn't written anything yet."));
+  };
+  fill($("latest"), latest("brain", "Most recent from the brain"), latest("code", "Most recent from Code"));
+
+  fill($("chain-facts"),
+    h("b", {}, "Head"), h("span", { class: "mono" }, m.head.seq ? `#${m.head.seq} · ${m.head.id}` : "empty"),
+    h("b", {}, "Policy"), h("span", {}, m.policy ? [h("span", { class: "mono" }, m.policy.slice(0, 12)), " in force"] : "none approved"),
+    m.faded !== undefined ? [h("b", {}, "Faded"), h("span", {}, `${m.faded} ${m.faded === 1 ? "entry" : "entries"}, ${m.faded_this_week} this week`)] : null,
+    h("b", {}, "Forgotten"), h("span", {}, `${m.redacted} ${m.redacted === 1 ? "entry" : "entries"}`));
   await backups();
+}
+
+// From the overview straight to one entry, selected in the inbox.
+function openInMemory(id) {
+  mem.mode = "all";
+  mem.query = "";
+  $("query").value = "";
+  for (const b of [$("mode-all"), $("mode-faded")]) b.classList.toggle("on", b.id === "mode-all");
+  mem.selected = id;
+  tab("memory");
 }
 
 // -- nightly backup
@@ -318,7 +340,8 @@ async function loadList({ more = false, keep = null } = {}) {
     next !== null ? h("button", { class: "ghost more", onclick: () => loadList({ more: true, keep: mem.selected }) }, "Older entries") : null);
   if (more) return;
   const pick = mem.rows.find((e) => e.id === keep) || mem.rows[0];
-  if (pick) select(pick.id, { reading: false });
+  if (keep && !mem.rows.some((e) => e.id === keep) && mem.mode === "all" && !mem.query) select(keep, { reading: false });
+  else if (pick) select(pick.id, { reading: false });
   else { mem.selected = null; fill($("detail"), h("p", { class: "placeholder" }, mem.rows.length ? "" : empty)); }
 }
 
