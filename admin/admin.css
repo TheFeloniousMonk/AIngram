@@ -85,7 +85,8 @@ textarea { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size:
 input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* header */
-.top { display: flex; justify-content: space-between; align-items: center; padding: .9rem 1.5rem; border-bottom: 1px solid var(--line); background: var(--panel); }
+/* The side padding lines the header up with main's content edges at any width. */
+.top { display: flex; justify-content: space-between; align-items: center; padding: .9rem max(1.5rem, calc((100% - 1240px) / 2 + 1.5rem)); border-bottom: 1px solid var(--line); background: var(--panel); }
 .brand { font-size: 1.45rem; font-weight: 650; letter-spacing: -.01em; line-height: 1.2; }
 .brand .ai { color: var(--accent); }
 .brand .sub { font-size: .95rem; font-weight: 450; color: var(--muted); margin-left: .5rem; letter-spacing: 0; }
@@ -202,6 +203,7 @@ table.keys { width: 100%; border-collapse: collapse; }
 .message, .secret { user-select: all; }
 
 @media (max-width: 900px) {
+  .top { padding: .8rem 16px; }
   main { padding: 1rem 16px 2.5rem; }
   .inbox { grid-template-columns: 1fr; }
   .detail { position: static; max-height: none; }
