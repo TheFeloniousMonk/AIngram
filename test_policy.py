@@ -306,6 +306,10 @@ class InvalidFiles(unittest.TestCase):
         self.bad(lambda r: r.update(reserved_kinds=[]), "reserved_kinds")
         self.bad(lambda r: r.update(reserved_subjects=["other"]), "reserved_subjects")
 
+    def test_fade_line_is_a_fraction(self):
+        for bad in (0, 1, 1.5, -0.1, "half", True, None):
+            self.bad(lambda r, b=bad: r["decay"].update(fade_below=b), "fade_below")
+
     def test_decay_needs_default(self):
         self.bad(lambda r: r["decay"]["half_life_days"].pop("default"), "default")
 

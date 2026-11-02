@@ -37,6 +37,12 @@ All deployment settings come from the environment or `.env`; see [.env.example](
 
 The server listens on `AINGRAM_HOST:AINGRAM_PORT` (loopback by default) and serves MCP at `/mcp`, the admin page at `/admin`, and a health check at `/healthz`. Put it behind a TLS reverse proxy that forwards the `Host` header.
 
+## How agents read it
+
+- **`boot`** returns the pinned core, the voice's recent tail, a one-line digest of what the other voice wrote since the brain last woke, and how many writes are left today. It stays within the policy's `boot.token_budget` (estimated from the response size, since the server runs no model): over budget, it drops the oldest tail entries first, then the excerpts of the newest core entries, and says what it trimmed.
+- **Decay.** Each entry's salience is 2^(−days since last use ÷ half-life). Below `decay.fade_below` an entry has faded: it leaves the recent tail and sinks in search, but stays in the log and can still be read. Reading an entry by id, or citing it in a new entry's `refs`, resets its clock and stretches its half-life. Pinned entries never fade.
+- **`recall`** by subject returns that subject's current state, newest first. By query, it ranks full-text matches by relevance times salience and marks faded hits.
+
 ## Admin
 
 Open `https://<your server>/admin` in a browser that has your wallet (Rabby, MetaMask, or any wallet that injects into the page) and sign in. The sign-in is a standard Sign-In with Ethereum message naming your server, so your wallet can warn you if a look-alike site asks for it. Only the admin wallet gets in.
@@ -45,7 +51,7 @@ Signing in lets you look: entries, keys, the policy and the admin activity log. 
 
 - **Policy.** A new server starts with no policy, and memory stays off until you approve one. The page offers `policy.example.yaml` as a first draft. Edit it in the page, check the changes, and approve them in your wallet. Every approved version is kept.
 - **Keys.** Create a key for a coding agent, and the page shows the secret once, along with ready-to-paste settings for Claude Code. Replace or revoke keys from the same list.
-- **Memory.** Browse by subject or search. Open an entry to see everything about it, and use *Forget this entry* to redact it. Entries that relied on it are listed for review.
+- **Memory.** Browse by subject or search. Open an entry to see everything about it, including its salience, and use *Forget this entry* to redact it. Entries that relied on it are listed for review. *Faded* lists what fell below the fade line and when, which is what to look at when tuning half-lives.
 - **Overview.** Verify the chain and download an export.
 
 Sessions end after 30 minutes idle, 8 hours after sign-in, or at sign-out.
@@ -66,6 +72,7 @@ python aingram_admin.py policy status
 - An admin session can only look. A stolen session cookie can't change anything, because every change needs a fresh wallet signature over that exact command. The cookie is HttpOnly and SameSite=Strict, only its hash is stored, and changing requests must come from the server's own origin. *Sign out everywhere* on the overview ends every session at once.
 - Read what your wallet shows before approving. Command messages start with `AIngram admin command` and name the server and the exact action. Approve them only on your own admin page, never because another site asks. For a policy, the wallet shows only the policy's hash: the page checks that it matches the text and changes you reviewed.
 - Changing `AINGRAM_ADMIN_ADDRESS` or the public URL makes earlier policy approvals no longer apply (they were signed by another wallet, or for another server). The server then starts with memory off until the admin approves a policy again.
+- If the approved policy can't be loaded (an upgrade added a setting it lacks, or its stored text was altered), the server fails closed: it starts with memory off, and the admin page shows the problem and opens that policy for fixing.
 - Run the service with a private temp directory (for systemd, `PrivateTmp=yes`). Exports are built in a private folder and removed after download.
 - The admin page loads no third-party code and runs under a strict Content Security Policy. Everything it shows from the store is inserted as text, never as HTML, since entries can contain text an agent read on the web.
 - Redaction zeroes freed pages, merges the full-text index and checkpoints the WAL, so forgotten content leaves the database files, not just the views.
@@ -75,7 +82,7 @@ python aingram_admin.py policy status
 ## Tests
 
 ```bash
-python -m unittest test_core test_admin_auth test_policy test_admin test_admin_web test_server
+python -m unittest test_core test_admin_auth test_policy test_admin test_admin_web test_server test_views
 python make_vectors.py --check
 ```
 

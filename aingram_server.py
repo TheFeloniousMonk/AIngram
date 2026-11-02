@@ -5,8 +5,9 @@ Run behind a TLS reverse proxy:  python aingram_server.py
 Settings come from the environment (.env.example). The policy in force is the
 one the admin wallet last approved on the admin page. Until one is approved,
 the tools refuse every call and only the admin page works. A new approval is
-picked up on the next request. The server refuses to start if a logged
-approval does not verify.
+picked up on the next request. If the approved policy can't be loaded (its
+text no longer validates after an upgrade, or was altered), memory stays off
+and the admin page says why.
 
 The caller's voice comes only from their key. No tool argument can set it.
 """
@@ -55,12 +56,19 @@ class AIngram:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._lock = threading.Lock()
+        # Why memory is off, when it is off for a reason other than "nothing approved yet".
+        # Failing closed but running keeps the admin page up, so it can be fixed without a shell.
+        self.policy_problem: str | None = None
         with self.connect() as conn:
-            self.policy = svc.load_approved_policy(conn, settings.server_name, settings.admin_address)
+            try:
+                self.policy = svc.load_approved_policy(conn, settings.server_name, settings.admin_address)
+            except PolicyError as e:
+                self.policy, self.policy_problem = None, str(e)
+                log.error("approved policy not loaded, memory is off until a policy is approved: %s", e)
             self._marker = svc.policy_approval_marker(conn)
-        if self.policy is None:
+        if self.policy is None and self.policy_problem is None:
             log.warning("no policy approved yet: sign in at %s/admin and approve one", settings.public_url)
-        else:
+        elif self.policy is not None:
             log.info("policy %s loaded", self.policy.sha256[:12])
 
     @contextmanager
@@ -80,9 +88,10 @@ class AIngram:
                         policy = svc.load_approved_policy(conn, self.settings.server_name,
                                                           self.settings.admin_address)
                         if policy is not None:
-                            self.policy = policy
+                            self.policy, self.policy_problem = policy, None
                             log.info("policy %s approved and loaded", policy.sha256[:12])
                     except PolicyError as e:
+                        self.policy_problem = f"the latest approval was not applied: {e}"
                         log.error("new policy approval not applied, keeping %s: %s",
                                   self.policy.sha256[:12] if self.policy else "none", e)
                     self._marker = marker
@@ -225,7 +234,7 @@ def transport_security(settings: Settings) -> TransportSecuritySettings:
 
 
 def create_app(settings: Settings):
-    """The ASGI app. Raises PolicyError if a logged policy approval does not verify."""
+    """The ASGI app. A policy that can't be loaded leaves memory off, not the server down."""
     app = AIngram(settings)
     server = build_server(app)
     return server.streamable_http_app(

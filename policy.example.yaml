@@ -63,10 +63,14 @@ decay:
   half_life_cap_days: 730
   # Only deliberate use reinforces. Appearing in boot or recall does not.
   reinforced_by: [read, cited_in_refs]
+  # Salience is 2^(-days since last reinforced / half-life). Below this line an
+  # entry has faded: it leaves the recent tail and sinks in search, but stays in
+  # the log and can still be read by id. 0.25 is two half-lives without use.
+  fade_below: 0.25
 
 boot:
   recent_tail: 8
-  token_budget: 1500
+  token_budget: 2000
   code_digest: one_line
   # "1 entry redacted since you last woke": the brain learns that something
   # was forgotten, never what. Shown whenever a tombstone is newer than last boot.

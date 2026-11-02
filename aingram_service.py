@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import re
 import secrets
 from datetime import datetime, timezone
@@ -73,6 +74,7 @@ LIVE = ("{t}.redacted_at IS NULL AND NOT EXISTS "
         "(SELECT 1 FROM entries s WHERE s.supersedes = {t}.id)")
 SCAN_PAGE = 200
 SCAN_MAX = 5000  # rows examined per recall, whatever the filters drop
+RANK_POOL = 100  # most relevant query matches re-ranked by salience
 
 
 def _visible(conn, policy: Policy, voice: str, ref: str):
@@ -93,11 +95,23 @@ def _readable_ids(conn, policy: Policy, voice: str, ids) -> list[str]:
     return out
 
 
-def _hit(row) -> dict:
+def _tail_item(row) -> dict:
+    """A boot tail line. Every tail entry is the booting voice's own, so no voice field,
+    and the day is enough to place it."""
+    out = {"id": short(row["id"]), "subject": row["subject"], "kind": row["kind"],
+           "date": row["ts"][:10], "excerpt": row["excerpt"]}
+    if row["untrusted_ctx"]:
+        out["untrusted_ctx"] = row["untrusted_ctx"]
+    return out
+
+
+def _hit(row, faded: bool = False) -> dict:
     out = {"id": short(row["id"]), "subject": row["subject"], "kind": row["kind"],
            "ts": row["ts"][:19] + "Z", "voice": row["voice"], "excerpt": row["excerpt"]}
     if row["untrusted_ctx"]:
         out["untrusted_ctx"] = row["untrusted_ctx"]
+    if faded:
+        out["faded"] = True
     return out
 
 
@@ -215,6 +229,29 @@ def load_approved_policy(conn, server_name: str, admin_address: str) -> Policy |
 
 
 # ---------------------------------------------------------------- salience
+# salience = 2^(-days since last reinforced / half-life). Entries with no
+# half-life (pinned) never fade. An entry has faded once its salience is below
+# policy.fade_below, which happens half-life * log2(1 / fade_below) days after
+# its last reinforcement: that date is what SQL compares, so no custom
+# function is needed.
+
+def salience_of(last_reinforced_at: str | None, half_life_days: float | None, now: datetime) -> float:
+    if not last_reinforced_at or half_life_days is None:
+        return 1.0
+    days = (now - datetime.strptime(last_reinforced_at, "%Y-%m-%dT%H:%M:%S.%fZ")
+            .replace(tzinfo=timezone.utc)).total_seconds() / 86400
+    return 2 ** (-max(days, 0.0) / half_life_days)
+
+
+def fade_factor(policy: Policy) -> float:
+    """Half-lives until an entry fades."""
+    return math.log2(1 / policy.fade_below)
+
+
+# Needs `LEFT JOIN salience s ON s.entry_id = e.id`; params (fade_factor, now).
+NOT_FADED = ("(s.half_life_days IS NULL OR "
+             "julianday(s.last_reinforced_at) + s.half_life_days * ? > julianday(?))")
+
 
 def reinforce(conn, policy: Policy, entry_id: str, now: datetime | None = None) -> None:
     """Deliberate use: reset the clock and stretch the half-life, up to the cap."""
@@ -310,6 +347,10 @@ def read(conn, policy: Policy, voice: str, ref: str, now: datetime | None = None
         out.update(redacted_at=row["redacted_at"], excerpt=None, keywords=None, body=None)
     else:
         out.update(excerpt=row["excerpt"], keywords=json.loads(row["keywords"]), body=row["body"])
+        s = conn.execute("SELECT * FROM salience WHERE entry_id = ?", (entry_id,)).fetchone()
+        # Salience as it stood before this read; reading it is what reinforces it.
+        out["salience"] = round(salience_of(s and s["last_reinforced_at"], s and s["half_life_days"],
+                                            _now(now)), 2)
         if "read" in policy.reinforced_by:
             reinforce(conn, policy, entry_id, now)
     out["head"] = head(conn)
@@ -326,14 +367,19 @@ def _fts_query(query: str) -> str:
 
 
 def recall(conn, policy: Policy, voice: str, *, subject: str | None = None, query: str | None = None,
-           kind: str | None = None, limit: int = 10) -> dict:
+           kind: str | None = None, limit: int = 10, now: datetime | None = None) -> dict:
+    """Subject mode returns the folded state newest first, faded entries included
+    (the fold is the truth about a subject). Query mode ranks full-text matches by
+    relevance times salience, so faded entries sink. Faded hits are marked."""
     if (subject is None) == (query is None):
         raise ServiceError("give exactly one of subject or query")
     if not isinstance(limit, int) or limit < 1:
         raise ServiceError("limit must be a positive integer")
+    now = _now(now)
     limit = min(limit, policy.limits["recall_max"])
     reserved = tuple(policy.reserved_kinds)
     live = f"{LIVE.format(t='e')} AND e.kind NOT IN ({','.join('?' * len(reserved))})"
+    cols = "e.*, s.last_reinforced_at AS s_last, s.half_life_days AS s_hl"
     if subject is not None:
         subtree = subject.endswith("/**")
         base = subject[:-3] if subtree else subject
@@ -341,28 +387,31 @@ def recall(conn, policy: Policy, voice: str, *, subject: str | None = None, quer
             where, args = "(e.subject = ? OR substr(e.subject, 1, ?) = ?)", (base, len(base) + 1, base + "/")
         else:
             where, args = "e.subject = ?", (base,)
-        sql = f"SELECT e.* FROM entries e WHERE {where} AND {live}"
+        sql = f"SELECT {cols} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id WHERE {where} AND {live}"
         order = "e.seq DESC"
-        mode = "subject"
+        mode, pool = "subject", limit
     else:
-        sql = (f"SELECT e.* FROM entries_fts JOIN entries e ON e.seq = entries_fts.rowid "
+        sql = (f"SELECT {cols}, bm25(entries_fts) AS rank FROM entries_fts "
+               f"JOIN entries e ON e.seq = entries_fts.rowid LEFT JOIN salience s ON s.entry_id = e.id "
                f"WHERE entries_fts MATCH ? AND {live}")
         args = (_fts_query(query),)
         order = "bm25(entries_fts)"
-        mode = "query"
+        # Rank a pool of the most relevant readable matches by relevance x salience.
+        mode, pool = "query", max(limit, RANK_POOL)
     args = (*args, *reserved)
     if kind is not None:
         sql, args = sql + " AND e.kind = ?", (*args, kind)
-    hits = []
+    rows = []
     for offset in range(0, SCAN_MAX, SCAN_PAGE):
         page = conn.execute(f"{sql} ORDER BY {order} LIMIT {SCAN_PAGE} OFFSET {offset}", args).fetchall()
-        for row in page:
-            if policy.check_read(voice, row["subject"]):
-                hits.append(_hit(row))
-                if len(hits) >= limit:
-                    return {"mode": mode, "hits": hits, "head": head(conn)}
-        if len(page) < SCAN_PAGE:
+        rows += [r for r in page if policy.check_read(voice, r["subject"])]
+        if len(rows) >= pool or len(page) < SCAN_PAGE:
             break
+    scored = [(salience_of(r["s_last"], r["s_hl"], now), r) for r in rows[:pool]]
+    if mode == "query":
+        # bm25() is lower-is-better and negative for matches; -rank is the relevance.
+        scored.sort(key=lambda sr: -sr[1]["rank"] * sr[0], reverse=True)
+    hits = [_hit(r, faded=sal < policy.fade_below) for sal, r in scored[:limit]]
     return {"mode": mode, "hits": hits, "head": head(conn)}
 
 
@@ -382,9 +431,11 @@ def boot(conn, policy: Policy, voice: str, now: datetime | None = None) -> dict:
                        for r in conn.execute(
                            f"SELECT e.* FROM entries e WHERE e.voice = 'brain' AND e.pinned = 1 AND {live} "
                            f"ORDER BY e.seq", reserved)]
-        out["recent"] = [_hit(r) for r in conn.execute(
-            f"SELECT e.* FROM entries e WHERE e.voice = 'brain' AND e.pinned = 0 AND {live} "
-            f"ORDER BY e.seq DESC LIMIT ?", (*reserved, tail_n))]
+        # Faded entries drop out of the tail; they stay in the log and in recall.
+        out["recent"] = [_tail_item(r) for r in conn.execute(
+            f"SELECT e.* FROM entries e LEFT JOIN salience s ON s.entry_id = e.id "
+            f"WHERE e.voice = 'brain' AND e.pinned = 0 AND {live} AND {NOT_FADED} "
+            f"ORDER BY e.seq DESC LIMIT ?", (*reserved, fade_factor(policy), _iso(now), tail_n))]
         out["code_digest"] = _digest(conn, since)
         if policy.boot["redaction_notice"]:
             n = conn.execute("SELECT COUNT(*) FROM entries WHERE kind = 'redaction' AND seq > ?",
@@ -398,12 +449,46 @@ def boot(conn, policy: Policy, voice: str, now: datetime | None = None) -> dict:
                                                 last_boot_seq = excluded.last_boot_seq""",
             (_iso(now), last_seq))
     else:
-        out["recent"] = [_hit(r) for r in conn.execute(
-            f"SELECT e.* FROM entries e WHERE e.voice = ? AND {live} ORDER BY e.seq DESC LIMIT ?",
-            (voice, *reserved, tail_n))]
+        out["recent"] = [_tail_item(r) for r in conn.execute(
+            f"SELECT e.* FROM entries e LEFT JOIN salience s ON s.entry_id = e.id "
+            f"WHERE e.voice = ? AND {live} AND {NOT_FADED} ORDER BY e.seq DESC LIMIT ?",
+            (voice, *reserved, fade_factor(policy), _iso(now), tail_n))]
 
     out["writes_left_today"] = policy.headroom(conn, voice, now)
     out["head"] = head(conn)
+    return fit_budget(out, policy.boot["token_budget"])
+
+
+# The server runs no model, so tokens are estimated from the compact JSON the
+# client receives. 3.5 characters per token errs on the side of a smaller boot.
+CHARS_PER_TOKEN = 3.5
+
+
+def estimate_tokens(obj) -> int:
+    return math.ceil(len(json.dumps(obj, separators=(",", ":"), ensure_ascii=False)) / CHARS_PER_TOKEN)
+
+
+def fit_budget(out: dict, budget: int) -> dict:
+    """Shed what boot can best spare until it fits: the oldest tail entries first,
+    then the excerpts of the newest core entries (their ids and subjects stay, so
+    each can still be read). What was shed is counted in `trimmed`."""
+    trimmed = {"recent": 0, "core_excerpts": 0}
+
+    def over() -> bool:
+        if any(trimmed.values()):
+            out["trimmed"] = {**{k: v for k, v in trimmed.items() if v},
+                              "note": "over the boot budget; read by id or recall for the rest"}
+        return estimate_tokens(out) > budget
+
+    while over() and out.get("recent"):
+        out["recent"].pop()  # newest first, so this drops the oldest
+        trimmed["recent"] += 1
+    for item in reversed(out.get("core", [])):
+        if not over():
+            break
+        if item.get("excerpt") is not None:
+            item["excerpt"] = None
+            trimmed["core_excerpts"] += 1
     return out
 
 

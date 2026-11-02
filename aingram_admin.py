@@ -19,6 +19,7 @@ import json
 import sys
 import threading
 import unicodedata
+from datetime import datetime, timedelta, timezone
 
 import admin_auth
 import aingram_core as core
@@ -93,15 +94,45 @@ def overview(conn, policy: Policy | None) -> dict:
     redacted = conn.execute("SELECT COUNT(*) FROM entries WHERE redacted_at IS NOT NULL").fetchone()[0]
     active = conn.execute("SELECT COUNT(*) FROM keys WHERE revoked_at IS NULL AND secret_hash IS NOT NULL"
                           ).fetchone()[0]
-    return {"head": svc.head(conn), "entries": counts, "redacted": redacted, "active_keys": active,
-            "policy": policy.sha256 if policy else None, "setup_needed": policy is None}
+    out = {"head": svc.head(conn), "entries": counts, "redacted": redacted, "active_keys": active,
+           "policy": policy.sha256 if policy else None, "setup_needed": policy is None}
+    if policy is not None:
+        f = faded(conn, policy, limit=1)
+        out.update(fade_below=policy.fade_below, faded=f["total"], faded_this_week=f["this_week"])
+    return out
 
 
-def _row(r) -> dict:
-    return {"id": svc.short(r["id"]), "seq": r["seq"], "ts": r["ts"][:19] + "Z", "voice": r["voice"],
-            "subject": r["subject"], "kind": r["kind"], "pinned": bool(r["pinned"]),
-            "excerpt": r["excerpt"], "redacted": r["redacted_at"] is not None,
-            "untrusted_ctx": r["untrusted_ctx"]}
+SALIENCE_COLS = "e.*, s.last_reinforced_at AS s_last, s.half_life_days AS s_hl"
+
+
+def _row(r, now: datetime | None = None) -> dict:
+    out = {"id": svc.short(r["id"]), "seq": r["seq"], "ts": r["ts"][:19] + "Z", "voice": r["voice"],
+           "subject": r["subject"], "kind": r["kind"], "pinned": bool(r["pinned"]),
+           "excerpt": r["excerpt"], "redacted": r["redacted_at"] is not None,
+           "untrusted_ctx": r["untrusted_ctx"]}
+    if r["redacted_at"] is None and "s_last" in r.keys():
+        out["salience"] = round(svc.salience_of(r["s_last"], r["s_hl"], now or datetime.now(timezone.utc)), 2)
+    return out
+
+
+def faded(conn, policy: Policy, now: datetime | None = None, limit: int = LIST_MAX) -> dict:
+    """Live entries below the fade line, most recently faded first, with when each crossed it:
+    the weekly 'what fell below the line' the half-lives are tuned from."""
+    now = now or datetime.now(timezone.utc)
+    k = svc.fade_factor(policy)
+    base = (f"FROM entries e JOIN salience s ON s.entry_id = e.id "
+            f"WHERE {svc.LIVE.format(t='e')} AND e.kind != 'redaction' AND s.half_life_days IS NOT NULL "
+            f"AND julianday(s.last_reinforced_at) + s.half_life_days * ? <= julianday(?)")
+    rows = conn.execute(
+        f"SELECT {SALIENCE_COLS}, strftime('%Y-%m-%dT%H:%M:%SZ', "
+        f"julianday(s.last_reinforced_at) + s.half_life_days * ?) AS faded_at "
+        f"{base} ORDER BY julianday(s.last_reinforced_at) + s.half_life_days * ? DESC LIMIT ?",
+        (k, k, svc._iso(now), k, max(1, min(int(limit), LIST_MAX)))).fetchall()
+    total = conn.execute(f"SELECT COUNT(*) {base}", (k, svc._iso(now))).fetchone()[0]
+    week = conn.execute(f"SELECT COUNT(*) {base} AND julianday(s.last_reinforced_at) + s.half_life_days * ? "
+                        f"> julianday(?)", (k, svc._iso(now), k, svc._iso(now - timedelta(days=7)))).fetchone()[0]
+    return {"entries": [{**_row(r, now), "faded_at": r["faded_at"]} for r in rows],
+            "total": total, "this_week": week}
 
 
 def subjects(conn) -> list[dict]:
@@ -128,12 +159,13 @@ def entries(conn, *, subject: str | None = None, query: str | None = None,
     if before is not None:
         where.append("e.seq < ?")
         args.append(int(before))
+    joined = "LEFT JOIN salience s ON s.entry_id = e.id"
     if query:
-        sql = ("SELECT e.* FROM entries_fts JOIN entries e ON e.seq = entries_fts.rowid "
+        sql = (f"SELECT {SALIENCE_COLS} FROM entries_fts JOIN entries e ON e.seq = entries_fts.rowid {joined} "
                f"WHERE entries_fts MATCH ? AND {' AND '.join(where)} ORDER BY e.seq DESC LIMIT ?")
         args = [svc._fts_query(query), *args]
     else:
-        sql = f"SELECT e.* FROM entries e WHERE {' AND '.join(where)} ORDER BY e.seq DESC LIMIT ?"
+        sql = f"SELECT {SALIENCE_COLS} FROM entries e {joined} WHERE {' AND '.join(where)} ORDER BY e.seq DESC LIMIT ?"
     rows = conn.execute(sql, (*args, limit + 1)).fetchall()
     more = len(rows) > limit
     rows = rows[:limit]
@@ -141,7 +173,8 @@ def entries(conn, *, subject: str | None = None, query: str | None = None,
 
 
 def entry(conn, ref: str) -> dict:
-    row = conn.execute("SELECT * FROM entries WHERE id = ?", (svc.resolve_id(conn, ref),)).fetchone()
+    row = conn.execute(f"SELECT {SALIENCE_COLS} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id "
+                       "WHERE e.id = ?", (svc.resolve_id(conn, ref),)).fetchone()
     entry_id = row["id"]
     out = _row(row)
     out.update(id=entry_id, key_id=row["key_id"], prev=svc.short(row["prev_hash"]),
@@ -173,11 +206,16 @@ def policy_state(conn, settings: Settings, policy: Policy | None) -> dict:
     """The approved policy text, or the first draft to start from when none is approved."""
     if policy is not None:
         return {"approved": {"sha256": policy.sha256, "body": svc.policy_body(conn, policy.sha256)}}
-    try:
-        with open(settings.policy_path, encoding="utf-8") as f:
-            draft = f.read()
-    except OSError:
-        draft = ""
+    # An approved policy that no longer loads (say, after an upgrade added a setting) is the
+    # best starting point for fixing it.
+    approved = svc.approved_policy_hash(conn, settings.server_name, settings.admin_address)
+    draft = svc.policy_body(conn, approved) if approved else None
+    if draft is None:
+        try:
+            with open(settings.policy_path, encoding="utf-8") as f:
+                draft = f.read()
+        except OSError:
+            draft = ""
     return {"approved": None, "draft": draft}
 
 

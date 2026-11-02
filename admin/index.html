@@ -28,7 +28,7 @@
 
 <main id="app" hidden>
   <div class="banner" id="setup" hidden>
-    <strong>No policy is approved yet.</strong> Memory stays off until you review the policy and approve it.
+    <span id="setup-text"></span>
     <button class="link" data-goto="policy">Go to policy</button>
   </div>
   <nav class="tabs" id="tabs">
@@ -68,7 +68,8 @@
         <form id="search" class="row">
           <input id="query" type="search" placeholder="Search memory" autocomplete="off">
         </form>
-        <button class="link" id="all-entries">All entries</button>
+        <div class="row"><button class="link" id="all-entries">All entries</button>
+          <button class="link" id="faded-entries">Faded</button></div>
         <ul id="subject-list" class="plain"></ul>
       </aside>
       <div class="card entries">

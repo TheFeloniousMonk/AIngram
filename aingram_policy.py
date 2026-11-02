@@ -132,6 +132,7 @@ class Policy:
     reinforce_multiplier: float
     half_life_cap_days: float
     reinforced_by: tuple[str, ...]
+    fade_below: float                      # salience under this has faded
     boot: Mapping[str, object]
     limits: Mapping[str, int]
     command_ttl_seconds: int
@@ -246,7 +247,7 @@ VOICE_KEYS = {"may_write_kinds", "may_write_subjects", "may_read_subjects", "may
               "may_redact", "daily_write_cap"}
 LIMIT_KEYS = {"body_max_chars", "keywords_max", "keyword_max_chars", "refs_max", "recall_max"}
 BOOT_KEYS = {"recent_tail", "token_budget", "code_digest", "redaction_notice"}
-DECAY_KEYS = {"half_life_days", "reinforce_multiplier", "half_life_cap_days", "reinforced_by"}
+DECAY_KEYS = {"half_life_days", "reinforce_multiplier", "half_life_cap_days", "reinforced_by", "fade_below"}
 
 
 def _exact_keys(obj, keys: set, where: str) -> dict:
@@ -340,6 +341,9 @@ def parse_policy(data: bytes) -> Policy:
     reinforced_by = _str_list(decay["reinforced_by"], "decay.reinforced_by")
     if set(reinforced_by) - {"read", "cited_in_refs"}:
         raise PolicyError("decay.reinforced_by: allowed values are read and cited_in_refs")
+    fade_below = decay["fade_below"]
+    if isinstance(fade_below, bool) or not isinstance(fade_below, (int, float)) or not 0 < fade_below < 1:
+        raise PolicyError("decay.fade_below: must be a number between 0 and 1")
 
     boot = _exact_keys(raw["boot"], BOOT_KEYS, "boot")
     _pos_int(boot["recent_tail"], "boot.recent_tail")
@@ -368,6 +372,7 @@ def parse_policy(data: bytes) -> Policy:
         reinforce_multiplier=multiplier,
         half_life_cap_days=cap_days,
         reinforced_by=reinforced_by,
+        fade_below=float(fade_below),
         boot=dict(boot),
         limits=limits,
         command_ttl_seconds=ttl,

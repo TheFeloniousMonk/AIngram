@@ -212,7 +212,7 @@ async function start() {
   $("who-addr").textContent = short(state.me.address);
   $("who-addr").title = state.me.address;
   $("mcp-url").textContent = state.me.mcp_url;
-  show($("setup"), state.me.setup_needed);
+  setupBanner();
   if (state.me.setup_needed) tab("policy"); else tab(current || "overview");
 }
 
@@ -234,7 +234,18 @@ document.addEventListener("click", (e) => {
 
 async function refreshMe() {
   state.me = await api("/admin/api/me");
-  show($("setup"), state.me.setup_needed);
+  setupBanner();
+}
+
+function setupBanner() {
+  const m = state.me;
+  const text = m.policy_problem
+    ? (m.setup_needed
+      ? `Memory is off: the approved policy could not be loaded (${m.policy_problem}). Review it and approve a fixed version.`
+      : `The latest policy approval was not applied (${m.policy_problem}). The previous policy is still in force.`)
+    : "No policy is approved yet. Memory stays off until you review the policy and approve it.";
+  $("setup-text").textContent = text;
+  show($("setup"), m.setup_needed || Boolean(m.policy_problem));
 }
 
 // -- overview
@@ -247,6 +258,7 @@ async function overview() {
     stat("Entries by the brain", m.entries.brain || 0),
     stat("Entries by code", m.entries.code || 0),
     stat("Forgotten", m.redacted),
+    m.faded !== undefined ? stat("Faded (this week)", `${m.faded} (${m.faded_this_week})`) : null,
     stat("Active keys", m.active_keys),
     stat("Chain head", m.head.seq ? `#${m.head.seq}  ${m.head.id}` : "empty"),
     stat("Policy", m.policy ? m.policy.slice(0, 12) : "not approved"),
@@ -277,6 +289,34 @@ async function memory() {
 }
 
 $("all-entries").addEventListener("click", () => loadEntries({}, "Latest entries"));
+$("faded-entries").addEventListener("click", loadFaded);
+
+function isFaded(e) {
+  return !e.redacted && typeof e.salience === "number" && state.me && state.me.fade_below !== undefined
+    && e.salience < state.me.fade_below;
+}
+
+function entryRow(e, extra) {
+  return h("li", {},
+    h("button", { class: "entry" + (e.redacted ? " redacted" : "") + (isFaded(e) ? " faded" : ""), onclick: () => openEntry(e.id) },
+      h("div", { class: "meta" }, h("span", { class: `voice ${e.voice}` }, e.voice), e.kind, " · ", e.subject,
+        e.pinned ? " · pinned" : "", e.untrusted_ctx ? ` · outside text: ${e.untrusted_ctx}` : "",
+        isFaded(e) ? " · faded" : "", h("span", { class: "muted right" }, extra || when(e.ts))),
+      h("div", {}, e.redacted ? "Forgotten" : e.excerpt)));
+}
+
+// Entries that fell below the fade line, most recent first: what to look at when tuning half-lives.
+async function loadFaded() {
+  state.filter = {};
+  const list = $("entry-list");
+  show($("more"), false);
+  try {
+    const data = await api("/admin/api/faded");
+    $("entries-title").textContent = `Faded: ${data.total} in all, ${data.this_week} this week`;
+    fill(list, data.entries.map((e) => entryRow(e, `faded ${when(e.faded_at)}`)));
+    if (!list.children.length) list.append(h("li", { class: "muted" }, "Nothing has faded."));
+  } catch (e) { fill(list, h("li", { class: "error" }, e.message)); }
+}
 $("search").addEventListener("submit", (e) => {
   e.preventDefault();
   const q = $("query").value.trim();
@@ -292,12 +332,7 @@ async function loadEntries(filter, title, more) {
   const list = $("entry-list");
   try {
     const data = await api(`/admin/api/entries?${params}`);
-    const rows = data.entries.map((e) => h("li", {},
-      h("button", { class: "entry" + (e.redacted ? " redacted" : ""), onclick: () => openEntry(e.id) },
-        h("div", { class: "meta" }, h("span", { class: `voice ${e.voice}` }, e.voice), e.kind, " · ", e.subject,
-          e.pinned ? " · pinned" : "", e.untrusted_ctx ? ` · outside text: ${e.untrusted_ctx}` : "",
-          h("span", { class: "muted right" }, when(e.ts))),
-        h("div", {}, e.redacted ? "Forgotten" : e.excerpt))));
+    const rows = data.entries.map((e) => entryRow(e));
     if (more) list.append(...rows); else fill(list, ...rows);
     if (!list.children.length) list.append(h("li", { class: "muted" }, "No entries."));
     state.before = data.next_before;
@@ -318,6 +353,9 @@ async function openEntry(id) {
     h("div", { class: "row spread" }, h("h2", {}, e.subject), h("button", { class: "ghost", onclick: () => show(box, false) }, "Close")),
     h("p", { class: "meta" }, h("span", { class: `voice ${e.voice}` }, e.voice), `${e.kind} · #${e.seq} · ${when(e.ts)} · key ${e.key_id}`),
     h("p", { class: "mono muted small" }, e.id),
+    typeof e.salience === "number"
+      ? h("p", { class: "muted small" }, e.pinned ? "Pinned: never fades." : `Salience ${e.salience}${isFaded(e) ? " (faded: out of the tail, low in search)" : ""}`)
+      : null,
     e.untrusted_ctx ? h("p", { class: "warn" }, `Written with outside text in context (${e.untrusted_ctx}).`) : null,
     e.redacted
       ? h("div", { class: "forgotten" }, h("p", {}, `Forgotten ${when(e.redacted_at)}.`),
@@ -418,7 +456,9 @@ async function policy() {
   state.policyBody = data.approved ? data.approved.body : "";
   $("policy-state").textContent = data.approved
     ? `Approved policy ${data.approved.sha256.slice(0, 12)}. Edit it below, check the changes, then approve them in your wallet.`
-    : "Nothing is approved yet. This is a starting draft: read it, adjust it, then approve it in your wallet.";
+    : state.me && state.me.policy_problem
+      ? "This is the approved policy, which no longer loads. Fix what the banner names, then approve it in your wallet."
+      : "Nothing is approved yet. This is a starting draft: read it, adjust it, then approve it in your wallet.";
   if (!$("policy-text").dataset.dirty) $("policy-text").value = text;
   show($("policy-error"), false);
   show($("policy-diff"), false);

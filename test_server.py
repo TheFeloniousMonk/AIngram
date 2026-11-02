@@ -3,6 +3,7 @@
 Drives the real ASGI app over HTTP (Starlette's TestClient), JSON-RPC in, JSON out.
 """
 
+import hashlib
 import itertools
 import json
 import shutil
@@ -16,11 +17,11 @@ from eth_account.messages import encode_defunct
 from starlette.testclient import TestClient
 
 import admin_auth
+import aingram_admin
 import aingram_core as core
 import aingram_server
 import aingram_service as svc
 from aingram_config import Settings
-from aingram_policy import PolicyError
 
 HERE = Path(__file__).parent
 ADMIN = Account.create()
@@ -366,13 +367,40 @@ class PolicyLifecycle(Harness):
         self.approve_policy()
         self.ok(self.code, "write", subject="newproject/x", kind="decision", excerpt="e")
 
-    def test_altered_policy_text_refuses_to_start(self):
+    def restart(self):
+        self.client.__exit__(None, None, None)
+        app = aingram_server.AIngram(self.settings)
+        self.client = TestClient(aingram_server.create_app(self.settings), base_url=BASE)
+        self.client.__enter__()
+        return app
+
+    def test_altered_policy_text_fails_closed(self):
         # Simulates someone with write access to the file: the stored text no longer matches its signed hash.
         sha = svc.approved_policy_hash(self.conn, SERVER, ADMIN.address)
         self.conn.execute("DROP TRIGGER policy_versions_no_update")
         self.conn.execute("UPDATE policy_versions SET body = body || '\n# swapped\n' WHERE sha256 = ?", (sha,))
-        with self.assertRaisesRegex(PolicyError, "does not match"):
-            aingram_server.create_app(self.settings)
+        app = self.restart()
+        self.assertIsNone(app.policy)
+        self.assertIn("does not match", app.policy_problem)
+        self.refused(self.code, "boot", "not set up yet")
+
+    def test_policy_outdated_by_an_upgrade_fails_closed(self):
+        # An approved policy written before a setting existed no longer validates.
+        raw = yaml.safe_load(self.policy_path.read_text())
+        del raw["decay"]["fade_below"]
+        old = yaml.safe_dump(raw)
+        self.conn.execute("INSERT INTO policy_versions VALUES (?, ?, 'x')",
+                          (hashlib.sha256(old.encode()).hexdigest(), old))
+        msg = admin_auth.prepare(self.conn, SERVER, {"action": "policy.approve",
+                                                     "sha256": hashlib.sha256(old.encode()).hexdigest()})
+        admin_auth.authorize(self.conn, SERVER, ADMIN.address, msg,
+                             ADMIN.sign_message(encode_defunct(text=msg)).signature.hex())
+        app = self.restart()
+        self.assertIn("fade_below", app.policy_problem)
+        self.refused(self.code, "boot", "not set up yet")
+        # The admin page offers the outdated text to fix, not the example.
+        state = aingram_admin.policy_state(self.conn, self.settings, None)
+        self.assertNotIn("fade_below", state["draft"])
 
 
 if __name__ == "__main__":

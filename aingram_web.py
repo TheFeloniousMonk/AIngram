@@ -334,7 +334,8 @@ def add_routes(server, app) -> None:
     @route("/admin/api/me", ["GET"])
     def me(conn, policy, d):
         return reply({"address": to_checksum_address(s.admin_address), "server": s.server_name,
-                      "mcp_url": f"{s.public_url}/mcp", **admin.overview(conn, policy)})
+                      "mcp_url": f"{s.public_url}/mcp", "policy_problem": app.policy_problem,
+                      **admin.overview(conn, policy)})
 
     @route("/admin/api/keys", ["GET"])
     def list_keys(conn, policy, d):
@@ -351,6 +352,12 @@ def add_routes(server, app) -> None:
             raise admin.Refused("before must be a sequence number")
         return reply(admin.entries(conn, subject=d.get("subject") or None, query=d.get("query") or None,
                                    before=int(before) if before else None))
+
+    @route("/admin/api/faded", ["GET"])
+    def list_faded(conn, policy, d):
+        if policy is None:
+            return reply({"entries": [], "total": 0, "this_week": 0})
+        return reply(admin.faded(conn, policy))
 
     @route("/admin/api/entries/{ref}", ["GET"])
     def get_entry(conn, policy, d):
