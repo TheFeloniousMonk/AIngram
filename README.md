@@ -75,7 +75,7 @@ The file has one JSON object per line:
 | `subject` | required | Path-like, e.g. `people/ada`, `ways-of-working/reviews` |
 | `kind` | required | e.g. `fact`, `breadcrumb`, `decision`, `correction` |
 | `excerpt` | required | Up to 300 characters: what boot and recall show |
-| `source` | required | Where it came from, up to 50 characters, e.g. `profile.md`. Each entry gets the keyword `migrated-from:<source>` |
+| `source` | required | Where it came from, such as `overview.md` or a full path, kept verbatim (up to 500 characters). Each entry gets the keyword `migrated-from:<source>`, so the chain and its exports record its provenance |
 | `keywords` | optional | A list of words |
 | `body` | optional | The full text |
 | `pinned` | optional | `true` puts it in the brain's core, shown at every boot |

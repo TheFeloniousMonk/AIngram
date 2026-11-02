@@ -88,15 +88,31 @@ class Checking(Import):
             {"subject": "x", "kind": "fact", "excerpt": "e" * 301, "source": "a"},                # too long
             {"subject": "x", "kind": "fact", "excerpt": "e", "source": "a", "date": "2099-01-01"},  # future
             {"subject": "x", "kind": "fact", "excerpt": "e", "source": "a", "voice": "code"},     # unknown field
-            {"subject": "x", "kind": "fact", "excerpt": "e", "source": "s" * 51},                 # source too long
+            {"subject": "x", "kind": "fact", "excerpt": "e", "source": "s" * 501},                # source too long
         ) + "not json\n"
         r = admin.check_import(bad, self.policy)
         self.assertFalse(r["valid"])
         self.assertEqual(r["problem_count"], 8)
         for n, needle in enumerate(("source is required", "reserved", "reserved", "excerpt is 301",
-                                    "future", "unknown field", "longer than 50", "not JSON"), 1):
+                                    "future", "unknown field", "longer than 500", "not JSON"), 1):
             self.assertIn(f"line {n}:", r["problems"][n - 1])
             self.assertIn(needle, r["problems"][n - 1])
+
+    def test_sources_are_kept_verbatim_as_provenance(self):
+        path = "/projects/019c3e57-ae20-74c7-9147-7784c0aabeb7/areas/session-breadcrumbs.md"
+        records, problems = admin.parse_import(jsonl(
+            {"subject": "x", "kind": "fact", "excerpt": "e", "source": path, "date": "2026-05-07"}), self.policy)
+        self.assertEqual(problems, [])
+        self.assertIn(f"migrated-from:{path}", records[0]["keywords"])  # past the 64-character keyword limit
+        self.assertIn("dated:2026-05-07", records[0]["keywords"])
+
+    def test_writer_keywords_still_follow_the_policy(self):
+        long_kw = jsonl({"subject": "x", "kind": "fact", "excerpt": "e", "source": "a.md", "keywords": ["k" * 65]})
+        self.assertIn("keyword", admin.parse_import(long_kw, self.policy)[1][0])
+        cap = self.policy.limits["keywords_max"]
+        full = jsonl({"subject": "x", "kind": "fact", "excerpt": "e", "source": "a.md",
+                      "keywords": [f"k{i}" for i in range(cap)]})
+        self.assertIn("two the import adds", admin.parse_import(full, self.policy)[1][0])
 
     def test_a_file_with_problems_cannot_be_prepared(self):
         with self.assertRaisesRegex(admin.Refused, "problem"):

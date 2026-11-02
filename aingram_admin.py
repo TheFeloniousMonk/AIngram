@@ -562,7 +562,7 @@ if __name__ == "__main__":
 IMPORT_MAX_BYTES = 20 * 1024 * 1024
 IMPORT_MAX_ENTRIES = 20000
 IMPORT_FIELDS = {"subject", "kind", "excerpt", "keywords", "body", "pinned", "untrusted_ctx", "date", "source"}
-SOURCE_MAX = 50  # "migrated-from:" plus this fits the policy's 64-character keyword limit
+SOURCE_MAX = 500  # a sanity bound on a file path, kept verbatim as provenance
 DATE_RE = re.compile(r"^\d{4}-\d\d-\d\d$")
 PROBLEMS_SHOWN = 50
 
@@ -620,14 +620,21 @@ def parse_import(text, policy: Policy) -> tuple[list[dict], list[str]]:
                     raise Refused("date is in the future")
             if len(rec["excerpt"]) > core.EXCERPT_MAX:
                 raise Refused(f"excerpt is {len(rec['excerpt'])} characters; max {core.EXCERPT_MAX}")
-            rec["keywords"].append(f"migrated-from:{source}")
-            if rec["date"]:
-                rec["keywords"].append(f"dated:{rec['date']}")  # kept in the chain and its exports
-            rec["line"] = n
+            # The writer's own keywords follow the policy like any live write does...
             for decision in (policy.check_write("brain", rec["subject"], rec["kind"], rec["pinned"], rec["untrusted_ctx"]),
                              policy.check_content(rec["excerpt"], rec["keywords"], rec["body"], ())):
                 if not decision:
                     raise Refused(decision.reason)
+            # ...while the provenance the importer records is kept verbatim, exempt from the
+            # keyword length limit (it is the source path, not a writer's tag). It lives in the
+            # entry's content, so the chain and its exports preserve it.
+            rec["keywords"].append(f"migrated-from:{source}")
+            if rec["date"]:
+                rec["keywords"].append(f"dated:{rec['date']}")
+            if len(rec["keywords"]) > policy.limits["keywords_max"]:
+                raise Refused(f"{len(rec['keywords'])} keywords with the two the import adds; "
+                              f"max {policy.limits['keywords_max']}")
+            rec["line"] = n
         except (Refused, ValueError) as e:
             problems.append(f"line {n}: {e}")
             continue
