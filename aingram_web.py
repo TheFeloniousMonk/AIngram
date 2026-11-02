@@ -50,6 +50,7 @@ SEEN_RESOLUTION = timedelta(seconds=60)
 CHALLENGE_TTL = timedelta(minutes=5)
 PREPARE_PER_MINUTE = 30
 BODY_MAX = 512 * 1024
+IMPORT_BODY_MAX = admin.IMPORT_MAX_BYTES * 2 + 1024  # JSON escaping can double the file's size
 STATEMENT = "Sign in to the AIngram admin page. Signing in only lets you look; every change asks your wallet again."
 
 STATIC_DIR = Path(__file__).with_name("admin")
@@ -264,12 +265,18 @@ def add_routes(server, app, oauth=None) -> None:
     def refuse(message, status=400) -> JSONResponse:
         return reply({"error": message}, status)
 
-    async def body_json(request: Request):
+    async def body_json(request: Request, max_body: int = BODY_MAX):
         if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
             raise admin.Refused("expected JSON")
-        raw = await request.body()
-        if len(raw) > BODY_MAX:
+        length = request.headers.get("content-length", "")
+        if length and (not length.isdigit() or int(length) > max_body):
             raise admin.Refused("request too large")
+        raw = bytearray()
+        async for chunk in request.stream():  # stop reading as soon as it is too large
+            raw += chunk
+            if len(raw) > max_body:
+                raise admin.Refused("request too large")
+        raw = bytes(raw)
         try:
             data = json.loads(raw or b"{}")
         except ValueError:
@@ -278,19 +285,26 @@ def add_routes(server, app, oauth=None) -> None:
             raise admin.Refused("expected a JSON object")
         return data
 
-    def handler(work, *, auth=True, post=False):
-        """Wrap work(conn, policy, request_data) -> response with the checks every route shares."""
+    def handler(work, *, auth=True, post=False, max_body=BODY_MAX):
+        """Wrap work(conn, policy, request_data) -> response with the checks every route shares.
+        The session is checked before any body is read, so only the admin can send a large one."""
         async def endpoint(request: Request) -> Response:
             if request.headers.get("host", "").lower() not in hosts:
                 return refuse("unknown host", 421)
             if post and request.headers.get("origin", "").lower() != origin:
                 return refuse("cross-site request refused", 403)
+            token = request.cookies.get(cookie)
+            if auth:
+                def signed_in():
+                    with app.connect() as conn:
+                        return session_address(conn, token, s.admin_address) is not None
+                if not await anyio.to_thread.run_sync(signed_in):
+                    return refuse("sign in first", 401)
             try:
-                data = await body_json(request) if post else dict(request.query_params)
+                data = await body_json(request, max_body) if post else dict(request.query_params)
                 data["_path"] = request.path_params
             except admin.Refused as e:
                 return refuse(str(e))
-            token = request.cookies.get(cookie)
 
             def run():
                 with app.connect() as conn:
@@ -450,9 +464,49 @@ def add_routes(server, app, oauth=None) -> None:
                             headers={"Cache-Control": "no-store"},
                             background=BackgroundTask(shutil.rmtree, folder, ignore_errors=True))
 
+    @route("/admin/api/backups", ["GET"])
+    def list_backups(conn, policy, d):
+        return reply({"tokens": admin.backup_tokens(conn), "public_url": s.public_url,
+                      "admin_address": to_checksum_address(s.admin_address)})
+
+    # -- the nightly backup's downloads: a backup token, never a session or an MCP key
+
+    def backup_route(path, build):
+        async def endpoint(request: Request) -> Response:
+            if request.headers.get("host", "").lower() not in hosts:
+                return refuse("unknown host", 421)
+            auth = request.headers.get("authorization", "")
+            token = auth[7:] if auth[:7].lower() == "bearer " else ""
+
+            def run():
+                with app.connect() as conn:
+                    if not admin.backup_token_valid(conn, token):
+                        return refuse("a valid backup token is required", 401)
+                    return build(conn)
+            return await anyio.to_thread.run_sync(run)
+        server.custom_route(path, methods=["GET"], include_in_schema=False)(endpoint)
+
+    def entries_file(conn):
+        folder = tempfile.mkdtemp(prefix="aingram-backup-")
+        path = os.path.join(folder, "entries.jsonl")
+        try:
+            core.export_jsonl(conn, path)
+        except BaseException:
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
+        return FileResponse(path, media_type="application/x-ndjson", headers={"Cache-Control": "no-store"},
+                            background=BackgroundTask(shutil.rmtree, folder, ignore_errors=True))
+
+    backup_route("/backup/entries.jsonl", entries_file)
+    backup_route("/backup/admin.json", lambda conn: reply(admin.backup_admin_record(conn, s)))
+
     # -- changing: every one is signed by the wallet
 
-    @route("/admin/api/actions/prepare", ["POST"], post=True)
+    @route("/admin/api/import/check", ["POST"], post=True, max_body=IMPORT_BODY_MAX)
+    def check_import(conn, policy, d):
+        return reply(admin.check_import(d.get("body"), policy))
+
+    @route("/admin/api/actions/prepare", ["POST"], post=True, max_body=IMPORT_BODY_MAX)
     def prepare(conn, policy, d):
         if not limiter.allow():
             raise admin.Refused("too many commands prepared; wait a minute")

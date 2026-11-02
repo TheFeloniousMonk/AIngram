@@ -145,12 +145,19 @@ def connect(path: str | os.PathLike) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout = 30000")
     # Freed pages are zeroed, so redacted content does not linger in the file.
     conn.execute("PRAGMA secure_delete = ON")
-    # The schema script takes the write lock; run it only on a store that lacks
-    # it (its last statement creates oauth_tokens_update_guard), not on every connect.
-    initialised = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'oauth_tokens_update_guard'").fetchone()
-    if initialised is None:
-        conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    # The schema script takes the write lock, so it runs only when schema.sql differs
+    # from what this store last applied (a new store, or an upgrade that added tables).
+    # Every statement is IF NOT EXISTS, so applying it again adds what is missing and
+    # touches nothing that exists.
+    schema = SCHEMA_PATH.read_text(encoding="utf-8")
+    digest = sha256_hex(schema.encode("utf-8"))
+    try:
+        applied = conn.execute("SELECT v FROM meta WHERE k = 'schema_sha256'").fetchone()
+    except sqlite3.OperationalError:  # a new store: no meta table yet
+        applied = None
+    if applied is None or applied[0] != digest:
+        conn.executescript(schema)
+        conn.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('schema_sha256', ?)", (digest,))
     return conn
 
 

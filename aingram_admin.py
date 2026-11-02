@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import json
+import re
+import secrets
 import sys
 import threading
 import unicodedata
@@ -37,32 +40,36 @@ class Refused(Exception):
     """The admin asked for something that can't be done. Safe to show."""
 
 
-class PolicyDrafts:
-    """The one policy text waiting for a signature, held in memory.
+class Drafts:
+    """Text waiting for a signature, held in memory: one policy draft and one import.
 
     Unsigned text never reaches the database, so a stolen session can't fill
-    policy_versions (which is append-only). Preparing a new draft replaces the
-    old one, so an older, still-unsigned approval can't land after a newer one."""
+    append-only tables with it. Preparing a new draft of a kind replaces the old
+    one, so an older, still-unsigned command can't land after a newer one."""
 
     def __init__(self):
-        self._draft: tuple[str, str] | None = None  # (sha256, body)
+        self._drafts: dict[str, tuple[str, object]] = {}  # kind -> (sha256, payload)
         self._lock = threading.Lock()
 
-    def put(self, sha256: str, body: str) -> None:
+    def put(self, sha256: str, payload, kind: str = "policy.approve") -> None:
         with self._lock:
-            self._draft = (sha256, body)
+            self._drafts[kind] = (sha256, payload)
 
-    def get(self, sha256: str) -> str | None:
+    def get(self, sha256: str, kind: str = "policy.approve"):
         with self._lock:
-            return self._draft[1] if self._draft and self._draft[0] == sha256 else None
+            d = self._drafts.get(kind)
+            return d[1] if d and d[0] == sha256 else None
 
-    def clear(self, sha256: str) -> None:
+    def clear(self, sha256: str, kind: str = "policy.approve") -> None:
         with self._lock:
-            if self._draft and self._draft[0] == sha256:
-                self._draft = None
+            d = self._drafts.get(kind)
+            if d and d[0] == sha256:
+                del self._drafts[kind]
 
 
-DRAFTS = PolicyDrafts()
+PolicyDrafts = Drafts
+DRAFTS = Drafts()
+DRAFTED = ("policy.approve", "import.apply")  # commands whose signed hash names a held draft
 
 
 def plain_text(value, what: str, max_len: int) -> str:
@@ -256,6 +263,16 @@ def _active_key(conn, key_id, *, grants: bool = False):
     return row
 
 
+def _active_backup(conn, token_id):
+    row = conn.execute("SELECT * FROM backup_tokens WHERE token_id = ?", (token_id,)).fetchone() \
+        if isinstance(token_id, str) else None
+    if row is None:
+        raise Refused(f"no backup token {token_id}")
+    if row["revoked_at"] is not None:
+        raise Refused(f"backup token {token_id} is already revoked")
+    return row
+
+
 def _redact_target(conn, policy: Policy | None, ref):
     if policy is None:
         raise Refused("approve a policy first")
@@ -306,6 +323,19 @@ def prepare(conn, settings: Settings, policy: Policy | None, request: dict,
             raise Refused("that is already the approved policy")
         drafts.put(candidate.sha256, body)
         action = {"action": "policy.approve", "sha256": candidate.sha256}
+    elif kind == "import.apply":
+        if policy is None:
+            raise Refused("approve a policy first")
+        records, problems = parse_import(request.get("body"), policy)
+        if problems:
+            raise Refused(f"the import has {len(problems)} problem(s); check it first")
+        sha = hashlib.sha256(request["body"].encode("utf-8")).hexdigest()
+        drafts.put(sha, records, "import.apply")
+        action = {"action": "import.apply", "sha256": sha, "entries": len(records)}
+    elif kind == "backup.mint":
+        action = {"action": "backup.mint", "label": plain_text(request.get("label"), "a label", LABEL_MAX)}
+    elif kind == "backup.revoke":
+        action = {"action": "backup.revoke", "token_id": _active_backup(conn, request.get("token_id"))["token_id"]}
     else:
         raise Refused(f"unknown action {kind!r}")
     ttl = policy.command_ttl_seconds if policy else admin_auth.TTL_SECONDS
@@ -317,22 +347,23 @@ def confirm(conn, settings: Settings, policy: Policy | None, message: str, signa
     """Check the signature, perform exactly the signed action, log the outcome."""
     if not isinstance(message, str) or not isinstance(signature, str):
         raise Refused("bad request")
-    body = None
+    draft = None
     try:
         signed = admin_auth.parse_message(message)["action"]
-        if signed.get("action") == "policy.approve":
+        if signed.get("action") in DRAFTED:
             # Checked before the nonce is spent: an approval is only ever logged for text we hold.
-            body = drafts.get(signed.get("sha256"))
-            if body is None:
-                raise Refused("this policy draft was replaced or has expired; check and approve it again")
+            draft = drafts.get(signed.get("sha256"), signed["action"])
+            if draft is None:
+                raise Refused("this draft was replaced or has expired; check it and approve it again")
         action = admin_auth.authorize(conn, settings.server_name, settings.admin_address, message, signature)
     except (admin_auth.AdminAuthError, ValueError) as e:
         raise Refused(f"refused: {e}. Nothing was changed.") from None
     try:
-        if body is not None:
-            svc.store_policy_version(conn, body)
-            drafts.clear(action["sha256"])
-        result, detail = _perform(conn, settings, policy, action)
+        if action["action"] == "policy.approve":
+            svc.store_policy_version(conn, draft)
+        if draft is not None:
+            drafts.clear(action["sha256"], action["action"])
+        result, detail = _perform(conn, settings, policy, action, draft)
     except Exception as e:
         admin_auth.log_outcome(conn, message, ok=False, detail=str(e))
         if isinstance(e, (Refused, svc.ServiceError, PolicyError, core.AIngramError)):
@@ -353,8 +384,10 @@ def _in_tx(conn, fn):
     return out
 
 
-def _perform(conn, settings: Settings, policy: Policy | None, a: dict) -> tuple[dict, str]:
+def _perform(conn, settings: Settings, policy: Policy | None, a: dict, draft=None) -> tuple[dict, str]:
     kind = a["action"]
+    if kind == "import.apply":
+        return apply_import(conn, policy, draft, a)
     if kind == "keys.mint":
         key_id, secret = _in_tx(conn, lambda: svc.mint_key_in_tx(conn, a["voice"], a["label"]))
         return {"key_id": key_id, "secret": secret}, f"minted {key_id}"
@@ -385,7 +418,63 @@ def _perform(conn, settings: Settings, policy: Policy | None, a: dict) -> tuple[
             raise Refused("that policy text is not on this server")
         svc.parse_policy(body.encode("utf-8"))
         return {"approved": a["sha256"]}, f"approved policy {a['sha256']}"
+    if kind == "backup.mint":
+        token_id, secret = f"b_{secrets.token_hex(4)}", svc.new_secret(BACKUP_PREFIX)
+        conn.execute("INSERT INTO backup_tokens (token_id, token_hash, label, created_at) VALUES (?,?,?,?)",
+                     (token_id, svc.hash_secret(secret), a["label"], core.utc_now()))
+        return {"token_id": token_id, "secret": secret}, f"created backup token {token_id}"
+    if kind == "backup.revoke":
+        _active_backup(conn, a["token_id"])
+        conn.execute("UPDATE backup_tokens SET revoked_at = ? WHERE token_id = ?", (core.utc_now(), a["token_id"]))
+        return {"revoked": a["token_id"]}, f"revoked backup token {a['token_id']}"
     raise Refused(f"unknown action {kind!r}")
+
+
+# ---------------------------------------------------------------- backup
+
+BACKUP_PREFIX = "aigb_"
+BACKUP_RE = re.compile(r"^aigb_[A-Za-z0-9_-]{43}$")
+BACKUP_FORMAT = 1
+
+
+def backup_tokens(conn) -> list[dict]:
+    return [{k: r[k] for k in ("token_id", "label", "created_at", "revoked_at", "last_used_at")}
+            for r in conn.execute("SELECT * FROM backup_tokens ORDER BY created_at")]
+
+
+def backup_token_valid(conn, secret) -> bool:
+    """True for an unrevoked backup token. Records its use (at most once a minute)."""
+    if not isinstance(secret, str) or not BACKUP_RE.match(secret):
+        return False
+    row = conn.execute("SELECT * FROM backup_tokens WHERE token_hash = ?", (svc.hash_secret(secret),)).fetchone()
+    if row is None or row["revoked_at"] is not None:
+        return False
+    last = row["last_used_at"]
+    now = datetime.now(timezone.utc)
+    if last is None or (now - datetime.strptime(last, "%Y-%m-%dT%H:%M:%S.%fZ")
+                        .replace(tzinfo=timezone.utc)).total_seconds() > svc.LAST_USED_RESOLUTION_S:
+        conn.execute("UPDATE backup_tokens SET last_used_at = ? WHERE token_id = ?", (svc._iso(now), row["token_id"]))
+    return True
+
+
+def backup_admin_record(conn, settings: Settings) -> dict:
+    """What the off-server check needs besides the entries: every signed policy approval
+    (message and signature, checkable against the admin address the backup trusts),
+    the text of every policy version, and the key list (no secrets) so new or changed
+    credentials show up in the nightly diff. Other signed commands are left out: a
+    redaction's signed message carries its reason, and reasons stay on the server."""
+    conn.execute("BEGIN")
+    try:
+        approvals = [{"message": r["message"], "signature": r["signature"]} for r in conn.execute(
+            "SELECT message, signature FROM admin_log WHERE event = 'authorized' AND action LIKE ? ORDER BY log_id",
+            (svc.POLICY_APPROVE_PREFIX + "%",))]
+        versions = {r["sha256"]: r["body"] for r in conn.execute("SELECT sha256, body FROM policy_versions")}
+        keys = [{k: r[k] for k in ("key_id", "voice", "label", "created_at", "revoked_at")}
+                for r in conn.execute("SELECT * FROM keys ORDER BY created_at, key_id")]
+    finally:
+        conn.execute("COMMIT")
+    return {"format": BACKUP_FORMAT, "server": settings.server_name, "policy_approvals": approvals,
+            "policy_versions": versions, "keys": keys}
 
 
 # ---------------------------------------------------------------- read-only CLI
@@ -444,3 +533,129 @@ def main(argv=None, out=print, env=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ---------------------------------------------------------------- import
+
+IMPORT_MAX_BYTES = 20 * 1024 * 1024
+IMPORT_MAX_ENTRIES = 20000
+IMPORT_FIELDS = {"subject", "kind", "excerpt", "keywords", "body", "pinned", "untrusted_ctx", "date", "source"}
+SOURCE_MAX = 50  # "migrated-from:" plus this fits the policy's 64-character keyword limit
+DATE_RE = re.compile(r"^\d{4}-\d\d-\d\d$")
+PROBLEMS_SHOWN = 50
+
+
+def parse_import(text, policy: Policy) -> tuple[list[dict], list[str]]:
+    """Read an import file (one JSON object per line) and check every line the way a
+    live write by the brain is checked. Returns (records, problems); any problem means
+    nothing is imported."""
+    if not isinstance(text, str) or not text.strip():
+        return [], ["the import file is empty"]
+    if len(text.encode("utf-8")) > IMPORT_MAX_BYTES:
+        return [], [f"the import file is over {IMPORT_MAX_BYTES // (1024 * 1024)} MB"]
+    records, problems = [], []
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        if len(records) >= IMPORT_MAX_ENTRIES:
+            problems.append(f"more than {IMPORT_MAX_ENTRIES} entries; split the import")
+            break
+        try:
+            raw = json.loads(line)
+        except ValueError as e:
+            problems.append(f"line {n}: not JSON ({e})")
+            continue
+        if not isinstance(raw, dict):
+            problems.append(f"line {n}: expected an object")
+            continue
+        unknown = set(raw) - IMPORT_FIELDS
+        if unknown:
+            problems.append(f"line {n}: unknown field(s) {', '.join(sorted(unknown))}")
+            continue
+        try:
+            rec = {
+                "subject": raw.get("subject"), "kind": raw.get("kind"), "excerpt": raw.get("excerpt"),
+                "keywords": list(raw.get("keywords") or []), "body": raw.get("body") or "",
+                "pinned": raw.get("pinned", False), "untrusted_ctx": raw.get("untrusted_ctx"),
+                "date": raw.get("date"), "source": raw.get("source")}
+            for field in ("subject", "kind", "excerpt", "source"):
+                if not isinstance(rec[field], str) or not rec[field].strip():
+                    raise Refused(f"{field} is required")
+            if not isinstance(rec["body"], str) or not all(isinstance(k, str) for k in rec["keywords"]):
+                raise Refused("body must be text and keywords a list of text")
+            if not isinstance(rec["pinned"], bool):
+                raise Refused("pinned must be true or false")
+            source = plain_text(rec["source"], "source", SOURCE_MAX)
+            if rec["date"] is not None:
+                if not isinstance(rec["date"], str) or not DATE_RE.match(rec["date"]):
+                    raise Refused("date must be YYYY-MM-DD")
+                datetime.strptime(rec["date"], "%Y-%m-%d")
+                if rec["date"] > today:
+                    raise Refused("date is in the future")
+            if len(rec["excerpt"]) > core.EXCERPT_MAX:
+                raise Refused(f"excerpt is {len(rec['excerpt'])} characters; max {core.EXCERPT_MAX}")
+            rec["keywords"].append(f"migrated-from:{source}")
+            for decision in (policy.check_write("brain", rec["subject"], rec["kind"], rec["pinned"], rec["untrusted_ctx"]),
+                             policy.check_content(rec["excerpt"], rec["keywords"], rec["body"], ())):
+                if not decision:
+                    raise Refused(decision.reason)
+        except (Refused, ValueError) as e:
+            problems.append(f"line {n}: {e}")
+            continue
+        records.append(rec)
+    if not records and not problems:
+        problems.append("the import file has no entries")
+    return records, problems
+
+
+def import_summary(records: list[dict]) -> dict:
+    top = lambda s: s.split("/", 1)[0]
+    subjects, kinds = {}, {}
+    for r in records:
+        subjects[top(r["subject"])] = subjects.get(top(r["subject"]), 0) + 1
+        kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
+    dates = sorted(r["date"] for r in records if r["date"])
+    return {"entries": len(records), "pinned": sum(r["pinned"] for r in records),
+            "subjects": dict(sorted(subjects.items(), key=lambda kv: -kv[1])),
+            "kinds": dict(sorted(kinds.items(), key=lambda kv: -kv[1])),
+            "dated": [dates[0], dates[-1]] if dates else None,
+            "outside_text": sum(1 for r in records if r["untrusted_ctx"])}
+
+
+def check_import(text, policy: Policy | None) -> dict:
+    if policy is None:
+        raise Refused("approve a policy first")
+    records, problems = parse_import(text, policy)
+    return {"valid": not problems, "problems": problems[:PROBLEMS_SHOWN], "problem_count": len(problems),
+            "summary": import_summary(records),
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest() if isinstance(text, str) else None,
+            "sample": records[:5]}
+
+
+def apply_import(conn, policy: Policy | None, records, a: dict) -> tuple[dict, str]:
+    """Write every record as the brain under a fresh import key, in one transaction:
+    all of it lands or none of it does. An entry's original date sets its decay clock,
+    so an old breadcrumb starts out as faded as it would be had it been written then.
+    The daily cap does not apply; the admin's signature over this exact file stands in for it."""
+    if policy is None:
+        raise Refused("approve a policy first")
+    if not records or len(records) != a["entries"]:
+        raise Refused("the import draft does not match what was signed")
+
+    def write_all():
+        key_id = f"k_brain_imp_{secrets.token_hex(4)}"
+        core.add_key(conn, key_id=key_id, voice="brain",
+                     label=f"import of {len(records)} entries, {datetime.now(timezone.utc):%Y-%m-%d}")
+        for r in records:
+            done = core._append_in_tx(
+                conn, key_id=key_id, subject=r["subject"], kind=r["kind"], excerpt=r["excerpt"],
+                keywords=r["keywords"], body=r["body"], pinned=r["pinned"], untrusted_ctx=r["untrusted_ctx"],
+                half_life_days=policy.half_life_for(r["kind"], r["pinned"]))
+            if r["date"]:
+                conn.execute("UPDATE salience SET last_reinforced_at = ? WHERE entry_id = ?",
+                             (f"{r['date']}T00:00:00.000000Z", done["id"]))
+        return key_id
+    key_id = _in_tx(conn, write_all)
+    return {"imported": len(records), "key_id": key_id, "head": svc.head(conn)}, \
+        f"imported {len(records)} entries as {key_id}"

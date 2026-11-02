@@ -28,7 +28,8 @@ import aingram_core as core
 
 HEADER = "AIngram admin command"
 TTL_SECONDS = 600
-ACTIONS = {"keys.mint", "keys.revoke", "keys.rotate", "redact", "policy.approve"}
+ACTIONS = {"keys.mint", "keys.revoke", "keys.rotate", "redact", "policy.approve",
+           "backup.mint", "backup.revoke", "import.apply"}
 
 
 class AdminAuthError(core.AIngramError):

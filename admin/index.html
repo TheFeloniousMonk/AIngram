@@ -37,6 +37,7 @@
     <button data-tab="memory">Memory</button>
     <button data-tab="keys">Keys</button>
     <button data-tab="policy">Policy</button>
+    <button data-tab="import">Import</button>
     <button data-tab="activity">Activity</button>
   </nav>
 
@@ -50,6 +51,15 @@
         <a class="button ghost" id="export" href="/admin/api/export">Download export</a>
       </div>
       <p id="verify-result"></p>
+    </div>
+    <div class="card">
+      <h2>Nightly backup</h2>
+      <p class="muted">A copy of memory the server can't touch, checked every night: on your own computer, or in a private GitHub repository. Each needs a backup token, which can only download the export.</p>
+      <ul id="backup-list" class="plain"></ul>
+      <form id="backup-mint" class="row">
+        <input id="backup-label" placeholder="Label, e.g. home PC" maxlength="80" autocomplete="off" required>
+        <button type="submit">Create backup token</button>
+      </form>
     </div>
     <div class="card">
       <h2>Sessions</h2>
@@ -110,6 +120,21 @@
       </div>
       <p class="error" id="policy-error" hidden></p>
       <pre class="diff" id="policy-diff" hidden></pre>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-import" hidden>
+    <div class="card">
+      <h2>Import existing memory</h2>
+      <p class="muted">Bring in memory you already have, such as a Claude project's files, all at once. Have the brain turn them into an import file (one entry per line; the README has the format and a prompt to use), then choose it here. Every line is checked against the policy first, and nothing is written until you approve the whole file in your wallet. Entries are written as the brain and tagged with where they came from.</p>
+      <div class="row"><input type="file" id="import-file" accept=".jsonl,.json,.txt"></div>
+      <p class="error" id="import-error" hidden></p>
+      <div id="import-preview" hidden>
+        <p id="import-headline"></p>
+        <div class="grid" id="import-stats"></div>
+        <ul class="plain" id="import-problems"></ul>
+        <div class="row"><button id="import-apply" hidden>Import in wallet</button></div>
+      </div>
     </div>
   </section>
 

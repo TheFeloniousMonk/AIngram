@@ -1,0 +1,2 @@
+# For aingram_backup.py, run off the server (your machine or a GitHub job).
+eth-account==0.14.0

@@ -1,0 +1,66 @@
+# AIngram nightly backup, run by GitHub instead of your own machine.
+#
+# Put this file in a PRIVATE repository of your own, at
+# .github/workflows/aingram-backup.yml, then in that repository's
+# Settings > Secrets and variables > Actions add:
+#
+#   secret    AINGRAM_BACKUP_TOKEN   a backup token from your admin page
+#   variable  AINGRAM_BACKUP_URL     your server, e.g. https://aingram.example.com
+#   variable  AINGRAM_BACKUP_ADMIN   your admin wallet address (the one this backup trusts)
+#   variable  AINGRAM_REF            optional: the AIngram commit to check with (default main);
+#                                     pin a commit so the checker can't change under you
+#
+# Each night the job checks the export and commits the ledger (headers, no
+# content) to this repository. The full export is kept as a run download that
+# expires after 7 days, so content you redact leaves GitHub within a week.
+# If a check fails the run fails, and GitHub emails you.
+
+name: AIngram backup
+
+on:
+  schedule:
+    - cron: "30 4 * * *"   # 04:30 UTC daily
+  workflow_dispatch:        # "Run workflow" button, for the first run
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aingram-backup
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.AINGRAM_REPO || 'TheFeloniousMonk/AIngram' }}
+          ref: ${{ vars.AINGRAM_REF || 'main' }}
+          path: .aingram
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r .aingram/requirements-backup.txt
+
+      - name: Check and save tonight's backup
+        env:
+          AINGRAM_BACKUP_URL: ${{ vars.AINGRAM_BACKUP_URL }}
+          AINGRAM_BACKUP_ADMIN: ${{ vars.AINGRAM_BACKUP_ADMIN }}
+          AINGRAM_BACKUP_TOKEN: ${{ secrets.AINGRAM_BACKUP_TOKEN }}
+        run: |
+          printf '.aingram/\nlatest/\nfailed/\nALERT.txt\n' > .gitignore
+          git add .gitignore
+          python .aingram/aingram_backup.py pull --dir .
+
+      - name: Keep the full export for 7 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: aingram-export
+          path: latest/
+          retention-days: 7
+
+      - run: git push

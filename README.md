@@ -21,6 +21,8 @@ A long-term memory for AI agents, kept outside the session. An engram is the tra
 | `aingram_web.py` | Admin page and grant page routes: wallet sign-in, sessions, the admin API |
 | `aingram_admin.py` | Admin operations (prepare and confirm signed commands), and a read-only CLI |
 | `admin_auth.py` | Signed admin commands: nonce, EIP-191 signature check, audit log |
+| `aingram_backup.py` | The nightly backup check, run off the server (your machine or GitHub) |
+| `backup/aingram-backup.yml` | GitHub Actions workflow for running the backup in a private repository |
 | `admin/` | The admin page: plain HTML, CSS and JavaScript, no build step |
 
 ## Setup
@@ -62,7 +64,52 @@ Signing in lets you look: entries, keys, the policy and the admin activity log. 
 
 Sessions end after 30 minutes idle, 8 hours after sign-in, or at sign-out.
 
-A read-only CLI is kept for scripts, such as a scheduled export. It changes nothing and needs no signature:
+## Importing existing memory
+
+To bring in memory you already have (a Claude project's files, notes, logs), have the brain write an import file, then upload it on the admin page's **Import** tab. Every line is checked the way a live write by the brain is, and the page previews what will land: counts by subject and kind, what is pinned, and any problems. Nothing is written until you approve the whole file in your wallet; then it all lands at once, or none of it does. Entries are written as the brain under an import key (listed under Keys, not a credential). The daily write cap doesn't apply, because your signature over that exact file stands in for it.
+
+The file has one JSON object per line:
+
+| Field | | |
+| --- | --- | --- |
+| `subject` | required | Path-like, e.g. `people/ada`, `ways-of-working/reviews` |
+| `kind` | required | e.g. `fact`, `breadcrumb`, `decision`, `correction` |
+| `excerpt` | required | Up to 300 characters: what boot and recall show |
+| `source` | required | Where it came from, up to 50 characters, e.g. `profile.md`. Each entry gets the keyword `migrated-from:<source>` |
+| `keywords` | optional | A list of words |
+| `body` | optional | The full text |
+| `pinned` | optional | `true` puts it in the brain's core, shown at every boot |
+| `untrusted_ctx` | optional | Where outside text came from, if any was involved, e.g. `meadow`, `web` |
+| `date` | optional | `YYYY-MM-DD` it was originally written. It sets the entry's decay clock, so an old breadcrumb arrives already faded |
+
+```json
+{"subject": "self/name", "kind": "fact", "excerpt": "I am Qlaude.", "pinned": true, "source": "overview.md"}
+{"subject": "breadcrumbs", "kind": "breadcrumb", "excerpt": "Meadow catch-up: two new agents joined.", "date": "2026-10-28", "untrusted_ctx": "meadow", "source": "breadcrumbs.md"}
+```
+
+A prompt that works well, in a chat that can see the files:
+
+> Turn the project memory into an AIngram import file: one JSON object per line, with the fields subject, kind, excerpt (300 characters at most), keywords, body, source (the file name), and optionally pinned, untrusted_ctx and date. Split each file by subject, one entry per fact line or section. Bring everything, not a summary. Breadcrumbs become one entry per dated block, of kind breadcrumb, with its date; mark those written after Meadow sessions with untrusted_ctx "meadow". Pin only what belongs in the always-present core. Give me the whole file in one code block.
+
+## Nightly backup
+
+Anyone with root on the server could edit the database directly, and no signature can prevent that. What catches it is a copy the server can't reach, checked every night. Each night the backup downloads the export with a read-only backup token and checks four things:
+
+- the log verifies: every hash is recomputed from content
+- it extends the previous night's: nothing missing, rewritten or un-redacted
+- every policy approval is signed by the admin address the backup itself trusts
+- no key vanished or came back from revocation
+
+If a check fails, nothing is overwritten and you're alerted.
+
+The backup keeps a **ledger** in git: every entry's header (ids, hashes, subjects, kinds, times) with no content, which is enough to prove the history was never rewritten. It also keeps the **latest** full export for restoring, replaced each night and never committed. So content you redact leaves the backup within a day.
+
+Create a backup token under *Nightly backup* on the admin page's overview, then pick one:
+
+- **On your computer.** Needs Python and git. In a copy of this repository, run `pip install -r requirements-backup.txt`, then the `install` command the admin page shows you (it carries your server, token and admin address). It makes a backup folder in your home folder, checks the first backup, and schedules the check nightly (a Windows scheduled task, or cron on macOS and Linux). A failed check pops up a desktop warning and leaves `ALERT.txt` in the folder.
+- **On GitHub, with nothing installed.** Make a private repository. Add [backup/aingram-backup.yml](backup/aingram-backup.yml) to it as `.github/workflows/aingram-backup.yml`, and add the secret and variables the admin page lists. Then run it once from the Actions tab. A failed check fails the run, and GitHub emails you. The ledger is committed to your repository. The full export is kept as a run download that expires after 7 days. Note that GitHub then holds a copy of your memory for up to a week, and your subjects in the ledger.
+
+A read-only CLI is kept for scripts. It changes nothing and needs no signature:
 
 ```bash
 python aingram_admin.py keys list
@@ -83,13 +130,15 @@ python aingram_admin.py policy status
 - Run the service with a private temp directory (for systemd, `PrivateTmp=yes`). Exports are built in a private folder and removed after download.
 - The admin page loads no third-party code and runs under a strict Content Security Policy. Everything it shows from the store is inserted as text, never as HTML, since entries can contain text an agent read on the web.
 - Redaction zeroes freed pages, merges the full-text index and checkpoints the WAL, so forgotten content leaves the database files, not just the views.
-- What signatures can't stop: anyone who can write the database file or the server's environment as the service user can forge rows or swap the admin address. Run the server as a dedicated user that owns the store and `.env` (mode 0600), and nobody else. The defense against root on the host is detection off the host: a nightly export checked with `python aingram_core.py extends old.jsonl new.jsonl` on a machine the host can't reach.
+- What signatures can't stop: anyone who can write the database file or the server's environment as the service user can forge rows or swap the admin address. Run the server as a dedicated user that owns the store and `.env` (mode 0600), and nobody else. The defense against root on the host is detection off the host: the [nightly backup](#nightly-backup), which trusts its own copy of the admin address, not the server's.
+- A backup token can only download the export (entries without redaction reasons, policy approvals and texts, and the key list without secrets). It can't use MCP or the admin page. Revoke it on the overview if it leaks.
+- Upgrades add new tables automatically: the server re-applies `schema.sql` whenever it has changed, and every statement in it only creates what is missing.
 - The chain head (latest seq and id) is in every response, for every voice. That reveals that someone wrote, never what.
 
 ## Tests
 
 ```bash
-python -m unittest test_core test_admin_auth test_policy test_admin test_admin_web test_server test_views test_oauth
+python -m unittest test_core test_admin_auth test_policy test_admin test_admin_web test_server test_views test_oauth test_backup test_import
 python make_vectors.py --check
 ```
 

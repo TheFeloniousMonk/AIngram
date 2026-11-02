@@ -277,7 +277,31 @@ BEGIN
     SELECT RAISE(ABORT, 'tokens are revoked, never deleted');
 END;
 
--- Keep this last: connect() treats its presence as "schema is current".
+-- Backup tokens: read-only credentials for the nightly export, used by a job
+-- off the server. They reach only /backup/*, never MCP or the admin API.
+-- Created and revoked by signed admin commands; only the hash is kept.
+CREATE TABLE IF NOT EXISTS backup_tokens (
+    token_id     TEXT PRIMARY KEY,
+    token_hash   TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64),
+    label        TEXT,
+    created_at   TEXT NOT NULL,
+    revoked_at   TEXT,
+    last_used_at TEXT
+);
+
+CREATE TRIGGER IF NOT EXISTS backup_tokens_no_delete BEFORE DELETE ON backup_tokens
+BEGIN
+    SELECT RAISE(ABORT, 'backup tokens are revoked, never deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS backup_tokens_update_guard BEFORE UPDATE ON backup_tokens
+WHEN NOT (NEW.token_id = OLD.token_id AND NEW.token_hash = OLD.token_hash
+          AND NEW.created_at = OLD.created_at
+          AND (OLD.revoked_at IS NULL OR NEW.revoked_at IS OLD.revoked_at))
+BEGIN
+    SELECT RAISE(ABORT, 'only revoked_at (once), last_used_at and label may change on a backup token');
+END;
+
 CREATE TRIGGER IF NOT EXISTS oauth_tokens_update_guard BEFORE UPDATE ON oauth_tokens
 WHEN NOT (NEW.token_hash = OLD.token_hash AND NEW.kind = OLD.kind AND NEW.key_id = OLD.key_id
           AND NEW.client_id = OLD.client_id AND NEW.expires_at = OLD.expires_at

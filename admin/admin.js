@@ -147,7 +147,7 @@ function tab(name) {
   current = name;
   for (const b of $("tabs").querySelectorAll("button")) b.classList.toggle("on", b.dataset.tab === name);
   for (const s of document.querySelectorAll(".tab")) show(s, s.id === `tab-${name}`);
-  Promise.resolve(({ overview, memory, keys, policy, activity })[name]()).catch((e) => {
+  Promise.resolve(({ overview, memory, keys, policy, "import": importTab, activity })[name]()).catch((e) => {
     if (state.me) modal("Something went wrong", h("p", { class: "error" }, e.message), [h("button", { onclick: closeModal }, "Close")]);
   });
 }
@@ -189,6 +189,49 @@ async function overview() {
     stat("Chain head", m.head.seq ? `#${m.head.seq}  ${m.head.id}` : "empty"),
     stat("Policy", m.policy ? m.policy.slice(0, 12) : "not approved"),
   );
+  await backups();
+}
+
+// -- nightly backup
+
+async function backups() {
+  const { tokens } = await api("/admin/api/backups");
+  fill($("backup-list"), tokens.map((t) => h("li", { class: "row spread" + (t.revoked_at ? " muted" : "") },
+    h("span", {}, h("span", { class: "mono" }, t.token_id), ` ${t.label || ""} · `,
+      t.revoked_at ? `revoked ${when(t.revoked_at)}` : `last backup ${when(t.last_used_at)}`),
+    t.revoked_at ? null : h("button", { class: "ghost danger", onclick: async () => {
+      if (await signed({ action: "backup.revoke", token_id: t.token_id }, `Revoke backup token ${t.token_id}`)) backups();
+    } }, "Revoke"))));
+  if (!tokens.length) $("backup-list").append(h("li", { class: "muted" }, "No backup is set up yet."));
+}
+
+$("backup-mint").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const result = await signed({ action: "backup.mint", label: $("backup-label").value }, "Create a backup token");
+  if (!result) return;
+  $("backup-label").value = "";
+  const info = await api("/admin/api/backups");
+  showBackupSetup(result, info);
+  backups();
+});
+
+function showBackupSetup(r, info) {
+  const block = (label, text) => {
+    const pre = h("pre", { class: "secret" }, text);
+    return [h("p", { class: "muted" }, label), pre, h("button", { class: "ghost", onclick: (e) => copy(text, e.target) }, "Copy")];
+  };
+  const cmd = `python aingram_backup.py install --url ${info.public_url} --token ${r.secret} --admin ${info.admin_address}`;
+  modal(`Backup token ${r.token_id} is ready`, [
+    h("p", { class: "warn" }, "This is the only time the token is shown. Use it for one of the two setups below."),
+    h("h2", {}, "On your computer"),
+    h("p", {}, "Needs Python and git. In a copy of AIngram, run pip install -r requirements-backup.txt, then this once. It makes a backup folder in your home folder, checks the first backup, and schedules one every night; if a check ever fails, a warning pops up."),
+    ...block("Command", cmd),
+    h("h2", {}, "Or on GitHub, with no install"),
+    h("p", {}, "Make a new private repository. Add the file backup/aingram-backup.yml from AIngram as .github/workflows/aingram-backup.yml, then under Settings, Secrets and variables, Actions, add these. Run the workflow once from the Actions tab. If a check ever fails, GitHub emails you."),
+    ...block("Secret AINGRAM_BACKUP_TOKEN", r.secret),
+    ...block("Variable AINGRAM_BACKUP_URL", info.public_url),
+    ...block("Variable AINGRAM_BACKUP_ADMIN", info.admin_address),
+  ], [h("button", { onclick: closeModal }, "I've saved it")]);
 }
 
 $("verify").addEventListener("click", async () => {
@@ -328,11 +371,14 @@ async function keys() {
   const body = $("key-rows");
   // Bearer keys (code) and the brain's connector grants; the admin wallet's own row is not a credential.
   const shown = rows.filter((k) => k.bearer || k.voice === "brain");
+  const imported = (k) => k.key_id.startsWith("k_brain_imp_");  // records an import; never a credential
   fill(body, ...shown.map((k) => h("tr", { class: k.revoked_at ? "revoked" : "" },
-    h("td", { class: "mono" }, k.key_id), h("td", {}, k.bearer ? k.voice : `${k.voice} (connector)`),
+    h("td", { class: "mono" }, k.key_id),
+    h("td", {}, k.bearer ? k.voice : imported(k) ? `${k.voice} (import)` : `${k.voice} (connector)`),
     h("td", {}, k.label || ""),
-    h("td", {}, when(k.last_used_at)), h("td", {}, k.revoked_at ? `revoked ${when(k.revoked_at)}` : "active"),
-    h("td", { class: "actions" }, k.revoked_at ? null : [
+    h("td", {}, when(k.last_used_at)),
+    h("td", {}, imported(k) ? "not a credential" : k.revoked_at ? `revoked ${when(k.revoked_at)}` : "active"),
+    h("td", { class: "actions" }, k.revoked_at || imported(k) ? null : [
       k.bearer ? h("button", { class: "ghost", onclick: () => rotate(k) }, "Replace") : null,
       h("button", { class: "ghost danger", onclick: () => revoke(k) }, "Revoke"),
     ]))));
@@ -424,6 +470,63 @@ $("policy-approve").addEventListener("click", async () => {
   delete $("policy-text").dataset.dirty;
   await refreshMe();
   policy();
+});
+
+// -- import
+
+let importText = null;
+
+function importTab() {
+  if (state.me && state.me.setup_needed) {
+    $("import-error").textContent = "Approve a policy first: imports are checked against it.";
+    show($("import-error"), true);
+  }
+}
+
+$("import-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  show($("import-error"), false);
+  show($("import-preview"), false);
+  importText = null;
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const r = await api("/admin/api/import/check", { body: text });
+    importText = text;
+    renderImport(r, file.name);
+  } catch (err) { $("import-error").textContent = err.message; show($("import-error"), true); }
+});
+
+function renderImport(r, name) {
+  const s = r.summary;
+  $("import-headline").textContent = r.valid
+    ? `${name}: ${s.entries} entries, all of them check out.`
+    : `${name}: ${r.problem_count} problem(s). Nothing can be imported until the file is fixed.`;
+  const stat = (label, value) => h("div", { class: "card stat" }, h("div", { class: "muted" }, label), h("div", { class: "big" }, value));
+  const list = (obj) => Object.entries(obj).slice(0, 8).map(([k, v]) => `${k} ×${v}`).join(", ") || "none";
+  fill($("import-stats"),
+    stat("Entries", s.entries), stat("Pinned to the core", s.pinned),
+    stat("With outside text", s.outside_text),
+    stat("Dated", s.dated ? `${s.dated[0]} to ${s.dated[1]}` : "none"),
+    h("div", { class: "card" }, h("div", { class: "muted" }, "Subjects"), h("div", {}, list(s.subjects))),
+    h("div", { class: "card" }, h("div", { class: "muted" }, "Kinds"), h("div", {}, list(s.kinds))));
+  fill($("import-problems"), r.problems.map((p) => h("li", { class: "error" }, p)),
+    r.problem_count > r.problems.length ? h("li", { class: "muted" }, `and ${r.problem_count - r.problems.length} more`) : null);
+  show($("import-apply"), r.valid);
+  $("import-apply").dataset.sha = r.sha256 || "";
+  $("import-apply").dataset.count = String(s.entries);
+  show($("import-preview"), true);
+}
+
+$("import-apply").addEventListener("click", async () => {
+  const sha = $("import-apply").dataset.sha, count = Number($("import-apply").dataset.count);
+  const result = await signed({ action: "import.apply", body: importText }, `Import ${count} entries`,
+    (action) => action.action === "import.apply" && action.sha256 === sha && action.entries === count);
+  if (!result) return;
+  show($("import-apply"), false);
+  $("import-headline").textContent = `Imported ${result.imported} entries. They are in Memory now, written as the brain.`;
+  $("import-file").value = "";
+  importText = null;
 });
 
 // -- activity

@@ -121,8 +121,8 @@ def hash_secret(secret: str) -> str:
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
-def new_secret() -> str:
-    return SECRET_PREFIX + base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+def new_secret(prefix: str = SECRET_PREFIX) -> str:
+    return prefix + base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
 
 
 def mint_key_in_tx(conn, voice: str, label: str) -> tuple[str, str]:
