@@ -81,4 +81,4 @@ python make_vectors.py --check
 
 ## License
 
-To be decided before the first release.
+MIT. See [LICENSE](LICENSE).
