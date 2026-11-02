@@ -16,8 +16,9 @@ A long-term memory for AI agents, kept outside the session. An engram is the tra
 | `aingram_core.py` | Canonical hashing, append, redact, verify, export. The hashing contract is in [HASHING.md](HASHING.md) and pinned by `vectors.json` |
 | `aingram_policy.py` | Loads `policy.yaml` strictly and decides who may write, read and redact what |
 | `aingram_service.py` | Policy-checked operations shared by the server and the CLI |
-| `aingram_server.py` | MCP server: `boot`, `recall`, `read`, `write`, `redact`, plus the admin page |
-| `aingram_web.py` | Admin page routes: wallet sign-in, sessions, the admin API |
+| `aingram_server.py` | MCP server: `boot`, `recall`, `read`, `write`, `redact`, plus the admin page and OAuth |
+| `aingram_oauth.py` | OAuth for the brain's connector: registration, approval, tokens |
+| `aingram_web.py` | Admin page and grant page routes: wallet sign-in, sessions, the admin API |
 | `aingram_admin.py` | Admin operations (prepare and confirm signed commands), and a read-only CLI |
 | `admin_auth.py` | Signed admin commands: nonce, EIP-191 signature check, audit log |
 | `admin/` | The admin page: plain HTML, CSS and JavaScript, no build step |
@@ -35,7 +36,12 @@ python aingram_server.py
 
 All deployment settings come from the environment or `.env`; see [.env.example](.env.example). Only two need setting: `AINGRAM_ADMIN_ADDRESS`, the wallet that administers this server, and `AINGRAM_PUBLIC_URL`.
 
-The server listens on `AINGRAM_HOST:AINGRAM_PORT` (loopback by default) and serves MCP at `/mcp`, the admin page at `/admin`, and a health check at `/healthz`. Put it behind a TLS reverse proxy that forwards the `Host` header.
+The server listens on `AINGRAM_HOST:AINGRAM_PORT` (loopback by default) and serves MCP at `/mcp`, the admin page at `/admin`, OAuth for connectors (`/.well-known/*`, `/register`, `/authorize`, `/token`, `/revoke`, and the approval page `/oauth/grant`), and a health check at `/healthz`. Put it behind a TLS reverse proxy that forwards the `Host` header.
+
+## Connecting agents
+
+- **The brain, in Claude (claude.ai, desktop or mobile).** Add a custom connector with your server's MCP endpoint, `https://<your server>/mcp`, and click Connect. Claude opens an approval page on your server: it names the connector and the voice it will get (the brain). Approve it with your admin wallet, and Claude is connected. Access lasts 7 days and renews itself; the grant shows up under Keys on the admin page, where you can revoke it. If a chat seems stuck after a renewal, start a new chat.
+- **Code, in Claude Code.** Create a code key on the admin page; it shows ready-to-paste settings.
 
 ## How agents read it
 
@@ -67,7 +73,8 @@ python aingram_admin.py policy status
 
 ## Security model
 
-- A caller's voice comes only from its key. Keys are 256-bit random secrets, stored as SHA-256 and shown once.
+- A caller's voice comes only from its credential. Code keys are 256-bit random secrets, stored as SHA-256 and shown once. The brain's OAuth tokens are also 256-bit, stored hashed, bound to this server's `/mcp`, and tied to a grant that only the admin wallet can create.
+- Only redirect URIs in `AINGRAM_OAUTH_REDIRECT_URIS` (Claude's callback by default) can register as OAuth clients, so another site can't ask you to approve a grant that would be sent to it. The approval message your wallet signs names the server, the connector, the voice and that one request, and works once.
 - Policy decides what each voice may write, read, pin and redact. The server loads only policy text the admin wallet approved, and re-checks its hash on load.
 - An admin session can only look. A stolen session cookie can't change anything, because every change needs a fresh wallet signature over that exact command. The cookie is HttpOnly and SameSite=Strict, only its hash is stored, and changing requests must come from the server's own origin. *Sign out everywhere* on the overview ends every session at once.
 - Read what your wallet shows before approving. Command messages start with `AIngram admin command` and name the server and the exact action. Approve them only on your own admin page, never because another site asks. For a policy, the wallet shows only the policy's hash: the page checks that it matches the text and changes you reviewed.
@@ -82,7 +89,7 @@ python aingram_admin.py policy status
 ## Tests
 
 ```bash
-python -m unittest test_core test_admin_auth test_policy test_admin test_admin_web test_server test_views
+python -m unittest test_core test_admin_auth test_policy test_admin test_admin_web test_server test_views test_oauth
 python make_vectors.py --check
 ```
 

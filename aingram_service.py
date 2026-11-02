@@ -142,12 +142,22 @@ def authenticate(conn, secret: str, now: datetime | None = None):
     row = conn.execute("SELECT * FROM keys WHERE secret_hash = ?", (hash_secret(secret),)).fetchone()
     if row is None or row["revoked_at"] is not None or row["voice"] not in ("brain", "code"):
         return None
+    touch_key(conn, row["key_id"], now, row["last_used_at"])
+    return row
+
+
+_UNKNOWN = object()
+
+
+def touch_key(conn, key_id: str, now: datetime | None = None, last=_UNKNOWN) -> None:
+    """Record use, at most once per LAST_USED_RESOLUTION_S, so reads rarely take the write lock."""
     now = _now(now)
-    last = row["last_used_at"]
+    if last is _UNKNOWN:
+        row = conn.execute("SELECT last_used_at FROM keys WHERE key_id = ?", (key_id,)).fetchone()
+        last = row["last_used_at"] if row else None
     if last is None or (now - datetime.strptime(last, "%Y-%m-%dT%H:%M:%S.%fZ")
                         .replace(tzinfo=timezone.utc)).total_seconds() > LAST_USED_RESOLUTION_S:
-        conn.execute("UPDATE keys SET last_used_at = ? WHERE key_id = ?", (_iso(now), row["key_id"]))
-    return row
+        conn.execute("UPDATE keys SET last_used_at = ? WHERE key_id = ?", (_iso(now), key_id))
 
 
 ADMIN_KEY_ID = "k_admin"

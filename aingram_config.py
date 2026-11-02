@@ -17,6 +17,11 @@ ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 # The first draft the admin page offers before any policy is approved.
 DEFAULT_POLICY = Path(__file__).with_name("policy.example.yaml")
+# OAuth clients may only register these exact redirect URIs: Claude's connector
+# callback (Anthropic has said it may move from claude.ai to claude.com). Any
+# other site registering itself to fish for a grant is refused at registration.
+DEFAULT_OAUTH_REDIRECTS = ("https://claude.ai/api/mcp/auth_callback",
+                           "https://claude.com/api/mcp/auth_callback")
 
 
 class ConfigError(Exception):
@@ -53,6 +58,7 @@ class Settings:
     host: str
     port: int
     public_url: str | None
+    oauth_redirect_uris: tuple[str, ...] = ()
 
     @property
     def loopback_bind(self) -> bool:
@@ -90,6 +96,13 @@ class Settings:
             server_name = urlparse(public_url).netloc
         if server_name is None and (need_admin or need_server):
             raise ConfigError("AINGRAM_SERVER_NAME or AINGRAM_PUBLIC_URL must be set (see .env.example)")
+        redirects = tuple(u.strip() for u in _get(env, "AINGRAM_OAUTH_REDIRECT_URIS", False,
+                                                  ",".join(DEFAULT_OAUTH_REDIRECTS)).split(",") if u.strip())
+        for uri in redirects:
+            p = urlparse(uri)
+            if not p.hostname or p.fragment or not (
+                    p.scheme == "https" or (p.scheme == "http" and p.hostname in LOOPBACK)):
+                raise ConfigError(f"AINGRAM_OAUTH_REDIRECT_URIS: {uri!r} must be an https URL")
         return cls(
             db_path=_get(env, "AINGRAM_DB", True),
             policy_path=_get(env, "AINGRAM_POLICY", False, str(DEFAULT_POLICY)),
@@ -98,4 +111,5 @@ class Settings:
             host=_get(env, "AINGRAM_HOST", False, "127.0.0.1"),
             port=int(port),
             public_url=public_url,
+            oauth_redirect_uris=redirects,
         )

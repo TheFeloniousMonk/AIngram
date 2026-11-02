@@ -4,33 +4,12 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const state = { me: null, provider: null, account: null, before: null, filter: {}, policyBody: "" };
+const state = { me: null, before: null, filter: {}, policyBody: "" };
 
 // ------------------------------------------------------------------ helpers
 
-function h(tag, attrs, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (v === null || v === undefined || v === false) continue;
-    if (k === "class") el.className = v;
-    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-    else el.setAttribute(k, v === true ? "" : v);
-  }
-  for (const kid of kids.flat(Infinity)) {
-    if (kid === null || kid === undefined || kid === false) continue;
-    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
-  }
-  return el;
-}
-
-// Replace an element's children; nested lists are flattened and empty slots skipped.
-function fill(el, ...kids) {
-  el.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false)
-    .map((k) => (k instanceof Node ? k : document.createTextNode(String(k)))));
-}
-
-function show(el, on) { el.hidden = !on; }
-function short(addr) { return addr ? addr.slice(0, 6) + "…" + addr.slice(-4) : ""; }
+const W = window.AIngramWallet;
+const { h, fill, show, short } = W;
 function when(ts) { return ts ? ts.replace("T", " ").slice(0, 16) + " UTC" : "never"; }
 
 async function api(path, body) {
@@ -56,90 +35,37 @@ async function copy(text, button) {
 }
 
 // ------------------------------------------------------------------ wallets
-// EIP-6963 lists every installed wallet; window.ethereum is the fallback.
 
-const wallets = new Map();
-window.addEventListener("eip6963:announceProvider", (e) => {
-  const d = e.detail;
-  if (d && d.info && d.provider) wallets.set(d.info.uuid, d);
-  if (!$("signin").hidden) renderWallets();
-});
-window.dispatchEvent(new Event("eip6963:requestProvider"));
-
-function walletList() {
-  const list = [...wallets.values()];
-  if (!list.length && window.ethereum) list.push({ info: { uuid: "injected", name: "Browser wallet", rdns: "injected" }, provider: window.ethereum });
-  return list;
-}
-
-function remembered() { try { return localStorage.getItem("aingram.wallet"); } catch (_) { return null; } }
-function remember(rdns) { try { localStorage.setItem("aingram.wallet", rdns); } catch (_) { /* ignore */ } }
-
-async function connect(w) {
-  const accounts = await w.provider.request({ method: "eth_requestAccounts" });
-  if (!accounts || !accounts.length) throw new Error("The wallet shared no account.");
-  state.provider = w.provider;
-  state.account = accounts[0];
-  remember(w.info.rdns);
-  if (w.provider.on) w.provider.on("accountsChanged", (a) => { state.account = (a && a[0]) || null; });
-  return state.account;
-}
-
-function toHex(text) {
-  return "0x" + Array.from(new TextEncoder().encode(text), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function sign(message) {
-  return state.provider.request({ method: "personal_sign", params: [toHex(message), state.account] });
-}
+W.onChange(() => { if (!$("signin").hidden) renderWallets(); });
 
 // The wallet that signs a change must be the admin wallet; check before asking it.
 async function ensureAdminWallet() {
   const admin = state.me.address.toLowerCase();
-  if (state.provider && state.account && state.account.toLowerCase() === admin) return;
-  const list = walletList();
-  if (!list.length) throw new Error("No browser wallet found. Install or unlock one, then reload.");
-  const pick = list.find((w) => w.info.rdns === remembered()) || list[0];
-  await connect(pick);
-  if (state.account.toLowerCase() !== admin)
+  if (W.connected() && W.account().toLowerCase() === admin) return;
+  await W.connectDefault();
+  if (W.account().toLowerCase() !== admin)
     throw new Error(`Switch your wallet to the admin account ${short(state.me.address)} and try again.`);
 }
 
 // ------------------------------------------------------------------ sign-in
 
 function renderWallets() {
-  const box = $("wallets");
-  fill(box, );
-  const list = walletList();
-  if (!list.length) {
-    box.append(h("p", { class: "muted" }, "No browser wallet found. Install one such as Rabby or MetaMask, unlock it, and reload this page."));
-    return;
-  }
-  for (const w of list) {
-    box.append(h("button", { class: "wallet", onclick: () => signIn(w) },
-      w.info.icon ? h("img", { src: w.info.icon, alt: "" }) : null,
-      `Sign in with ${w.info.name}`));
-  }
+  W.renderButtons($("wallets"), "Sign in", signIn);
 }
 
 async function signIn(w) {
   const err = $("signin-error");
   show(err, false);
   try {
-    const account = await connect(w);
+    const account = await W.connect(w);
     const { message } = await api("/admin/api/login/challenge", { address: account });
-    const signature = await sign(message);
+    const signature = await W.sign(message);
     await api("/admin/api/login/verify", { message, signature });
     await start();
   } catch (e) {
-    err.textContent = walletError(e);
+    err.textContent = W.walletError(e);
     show(err, true);
   }
-}
-
-function walletError(e) {
-  if (e && (e.code === 4001 || /reject|denied|cancel/i.test(e.message || ""))) return "You cancelled in the wallet. Nothing happened.";
-  return (e && e.message) || String(e);
 }
 
 function signedOut() {
@@ -181,7 +107,7 @@ async function signed(request, title, expect) {
     ({ message, action } = await api("/admin/api/actions/prepare", request));
     if (expect && !expect(action)) throw new Error("The server prepared something other than what you checked. Nothing was signed.");
   } catch (e) {
-    modal(title, h("p", { class: "error" }, walletError(e)), [h("button", { onclick: closeModal }, "Close")]);
+    modal(title, h("p", { class: "error" }, W.walletError(e)), [h("button", { onclick: closeModal }, "Close")]);
     return null;
   }
   modal(title, [
@@ -190,14 +116,14 @@ async function signed(request, title, expect) {
     h("p", { class: "muted", id: "sign-status" }, "Waiting for your wallet…"),
   ], [h("button", { class: "ghost", onclick: closeModal }, "Cancel")]);
   try {
-    const signature = await sign(message);
+    const signature = await W.sign(message);
     if ($("modal").hidden) return null;
     $("sign-status").textContent = "Checking the signature…";
     const result = await api("/admin/api/actions/confirm", { message, signature });
     closeModal();
     return result;
   } catch (e) {
-    modal(title, h("p", { class: "error" }, walletError(e)), [h("button", { onclick: closeModal }, "Close")]);
+    modal(title, h("p", { class: "error" }, W.walletError(e)), [h("button", { onclick: closeModal }, "Close")]);
     return null;
   }
 }
@@ -400,11 +326,14 @@ function forget(e) {
 async function keys() {
   const { keys: rows } = await api("/admin/api/keys");
   const body = $("key-rows");
-  fill(body, ...rows.filter((k) => k.bearer).map((k) => h("tr", { class: k.revoked_at ? "revoked" : "" },
-    h("td", { class: "mono" }, k.key_id), h("td", {}, k.voice), h("td", {}, k.label || ""),
+  // Bearer keys (code) and the brain's connector grants; the admin wallet's own row is not a credential.
+  const shown = rows.filter((k) => k.bearer || k.voice === "brain");
+  fill(body, ...shown.map((k) => h("tr", { class: k.revoked_at ? "revoked" : "" },
+    h("td", { class: "mono" }, k.key_id), h("td", {}, k.bearer ? k.voice : `${k.voice} (connector)`),
+    h("td", {}, k.label || ""),
     h("td", {}, when(k.last_used_at)), h("td", {}, k.revoked_at ? `revoked ${when(k.revoked_at)}` : "active"),
     h("td", { class: "actions" }, k.revoked_at ? null : [
-      h("button", { class: "ghost", onclick: () => rotate(k) }, "Replace"),
+      k.bearer ? h("button", { class: "ghost", onclick: () => rotate(k) }, "Replace") : null,
       h("button", { class: "ghost danger", onclick: () => revoke(k) }, "Revoke"),
     ]))));
   if (!body.children.length) body.append(h("tr", {}, h("td", { colspan: "6", class: "muted" }, "No keys yet.")));

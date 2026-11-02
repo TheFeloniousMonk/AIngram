@@ -6,6 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <title>AIngram admin</title>
 <link rel="stylesheet" href="/admin/admin.css">
+<script src="/admin/wallet.js" defer></script>
 <script src="/admin/admin.js" defer></script>
 </head>
 <body>
@@ -84,7 +85,7 @@
   <section class="tab" id="tab-keys" hidden>
     <div class="card">
       <h2>New code key</h2>
-      <p class="muted">For a coding agent such as Claude Code. The brain connects by wallet sign-in instead and needs no key.</p>
+      <p class="muted">For a coding agent such as Claude Code. The brain needs no key: add the MCP endpoint (on the overview) as a custom connector in Claude, and approve the connection with your wallet when Claude opens the approval page. The grant then shows up below.</p>
       <form id="mint" class="row">
         <input id="mint-label" placeholder="Label, e.g. laptop Claude Code" maxlength="80" autocomplete="off" required>
         <button type="submit">Create key</button>

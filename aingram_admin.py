@@ -242,14 +242,16 @@ def verify(conn) -> list[str]:
 
 # ---------------------------------------------------------------- signed commands
 
-def _active_key(conn, key_id):
+def _active_key(conn, key_id, *, grants: bool = False):
+    """An unrevoked bearer key; with grants=True, also a brain grant (a key row with
+    no secret, whose OAuth tokens stop working once it is revoked)."""
     row = conn.execute("SELECT * FROM keys WHERE key_id = ?", (key_id,)).fetchone() \
         if isinstance(key_id, str) else None
     if row is None:
         raise Refused(f"no key {key_id}")
     if row["revoked_at"] is not None:
         raise Refused(f"key {key_id} is already revoked")
-    if row["secret_hash"] is None:
+    if row["secret_hash"] is None and not (grants and row["voice"] == "brain"):
         raise Refused(f"key {key_id} is not a bearer key")
     return row
 
@@ -281,7 +283,8 @@ def prepare(conn, settings: Settings, policy: Policy | None, request: dict,
         action = {"action": "keys.mint", "voice": "code",
                   "label": plain_text(request.get("label"), "a key label", LABEL_MAX)}
     elif kind == "keys.revoke":
-        action = {"action": "keys.revoke", "key_id": _active_key(conn, request.get("key_id"))["key_id"]}
+        action = {"action": "keys.revoke",
+                  "key_id": _active_key(conn, request.get("key_id"), grants=True)["key_id"]}
     elif kind == "keys.rotate":
         old = _active_key(conn, request.get("key_id"))
         label = request.get("label") or old["label"] or f"rotated from {old['key_id']}"
@@ -356,8 +359,11 @@ def _perform(conn, settings: Settings, policy: Policy | None, a: dict) -> tuple[
         key_id, secret = _in_tx(conn, lambda: svc.mint_key_in_tx(conn, a["voice"], a["label"]))
         return {"key_id": key_id, "secret": secret}, f"minted {key_id}"
     if kind == "keys.revoke":
-        _active_key(conn, a["key_id"])
+        _active_key(conn, a["key_id"], grants=True)
         core.revoke_key(conn, a["key_id"])
+        # A grant's tokens already fail once its key is revoked; ending them too keeps the record plain.
+        conn.execute("UPDATE oauth_tokens SET revoked_at = ? WHERE key_id = ? AND revoked_at IS NULL",
+                     (core.utc_now(), a["key_id"]))
         return {"revoked": a["key_id"]}, f"revoked {a['key_id']}"
     if kind == "keys.rotate":
         def rotate():

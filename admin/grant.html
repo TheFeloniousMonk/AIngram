@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Connect to AIngram</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<script src="/admin/wallet.js" defer></script>
+<script src="/admin/grant.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">AIngram <span class="muted">connect</span></div>
+</header>
+<main>
+  <section class="card narrow">
+    <h1>Connect a connector</h1>
+    <div id="loading"><p class="muted">Checking the request…</p></div>
+    <div id="request" hidden>
+      <p><strong id="client"></strong> is asking for the <strong id="voice"></strong> voice on <span id="server" class="mono"></span>.</p>
+      <p class="muted">With it, the connector can read and write memory as the brain. Only the admin wallet can approve this, and you can revoke it any time under Keys on the admin page.</p>
+      <p class="muted">After approving you go back to <span id="redirect-host" class="mono"></span>.</p>
+      <p class="warn">Approve only if you just clicked Connect in Claude yourself (this request was made <span id="age"></span>). Anyone can add a connector named "Claude" and send you a link like this one; approving it would hand them your memory.</p>
+      <div id="wallets" class="stack"></div>
+      <div class="row"><button class="link" id="deny">Don't connect</button></div>
+    </div>
+    <div id="signing" hidden>
+      <p>Your wallet will show this message. Approve it there only if it names this server and the connector you meant to add.</p>
+      <pre class="message" id="message"></pre>
+      <p class="muted" id="status">Waiting for your wallet…</p>
+    </div>
+    <p class="error" id="error" hidden></p>
+  </section>
+</main>
+</body>
+</html>

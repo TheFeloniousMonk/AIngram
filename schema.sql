@@ -230,8 +230,58 @@ BEGIN
     SELECT RAISE(ABORT, 'policy_versions is append-only');
 END;
 
--- Keep this last: connect() treats its presence as "schema is current".
 CREATE TRIGGER IF NOT EXISTS policy_versions_no_update BEFORE UPDATE ON policy_versions
 BEGIN
     SELECT RAISE(ABORT, 'policy_versions is append-only');
+END;
+
+-- OAuth clients registered dynamically (RFC 7591), such as claude.ai's connector.
+-- Registration alone grants nothing: a voice is granted only when the admin
+-- wallet signs an approval, which creates a key row for that grant. Anyone can
+-- register, so only trimmed metadata is kept, and registrations that never led
+-- to a token are pruned. A client that was ever issued a token is kept for good.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id  TEXT PRIMARY KEY,
+    info       TEXT NOT NULL,   -- the trimmed client metadata, as JSON
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS oauth_clients_created ON oauth_clients (created_at);
+
+CREATE TRIGGER IF NOT EXISTS oauth_clients_keep_used BEFORE DELETE ON oauth_clients
+WHEN EXISTS (SELECT 1 FROM oauth_tokens WHERE client_id = OLD.client_id)
+BEGIN
+    SELECT RAISE(ABORT, 'a client that was issued tokens is never deleted');
+END;
+
+-- OAuth access and refresh tokens. Only their hashes are kept. Each belongs to
+-- a grant's key row, so revoking the key cuts every token issued under it.
+-- Tokens end by stamping revoked_at; rows are never deleted.
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    token_hash TEXT PRIMARY KEY CHECK (length(token_hash) = 64),
+    kind       TEXT NOT NULL CHECK (kind IN ('access', 'refresh')),
+    key_id     TEXT NOT NULL REFERENCES keys(key_id),
+    client_id  TEXT NOT NULL REFERENCES oauth_clients(client_id),
+    scopes     TEXT NOT NULL,
+    resource   TEXT,
+    created_at TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,   -- unix seconds
+    revoked_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS oauth_tokens_key ON oauth_tokens (key_id);
+CREATE INDEX IF NOT EXISTS oauth_tokens_client ON oauth_tokens (client_id);
+
+CREATE TRIGGER IF NOT EXISTS oauth_tokens_no_delete BEFORE DELETE ON oauth_tokens
+BEGIN
+    SELECT RAISE(ABORT, 'tokens are revoked, never deleted');
+END;
+
+-- Keep this last: connect() treats its presence as "schema is current".
+CREATE TRIGGER IF NOT EXISTS oauth_tokens_update_guard BEFORE UPDATE ON oauth_tokens
+WHEN NOT (NEW.token_hash = OLD.token_hash AND NEW.kind = OLD.kind AND NEW.key_id = OLD.key_id
+          AND NEW.client_id = OLD.client_id AND NEW.expires_at = OLD.expires_at
+          AND OLD.revoked_at IS NULL)
+BEGIN
+    SELECT RAISE(ABORT, 'only revoked_at may change on a token, once');
 END;

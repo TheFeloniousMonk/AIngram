@@ -146,9 +146,9 @@ def connect(path: str | os.PathLike) -> sqlite3.Connection:
     # Freed pages are zeroed, so redacted content does not linger in the file.
     conn.execute("PRAGMA secure_delete = ON")
     # The schema script takes the write lock; run it only on a store that lacks
-    # it (its last statement creates policy_versions_no_update), not on every connect.
+    # it (its last statement creates oauth_tokens_update_guard), not on every connect.
     initialised = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'policy_versions_no_update'").fetchone()
+        "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'oauth_tokens_update_guard'").fetchone()
     if initialised is None:
         conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
     return conn

@@ -38,6 +38,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 
 import admin_auth
 import aingram_admin as admin
+import aingram_oauth
 import aingram_core as core
 import aingram_service as svc
 from aingram_config import ADDRESS_RE
@@ -54,7 +55,10 @@ STATEMENT = "Sign in to the AIngram admin page. Signing in only lets you look; e
 STATIC_DIR = Path(__file__).with_name("admin")
 STATIC = {"admin": ("index.html", "text/html; charset=utf-8"),
           "admin/admin.js": ("admin.js", "text/javascript; charset=utf-8"),
-          "admin/admin.css": ("admin.css", "text/css; charset=utf-8")}
+          "admin/wallet.js": ("wallet.js", "text/javascript; charset=utf-8"),
+          "admin/admin.css": ("admin.css", "text/css; charset=utf-8"),
+          "oauth/grant": ("grant.html", "text/html; charset=utf-8"),
+          "admin/grant.js": ("grant.js", "text/javascript; charset=utf-8")}
 PAGE_HEADERS = {
     "Content-Security-Policy": ("default-src 'none'; script-src 'self'; style-src 'self'; "
                                 "connect-src 'self'; img-src 'self' data:; base-uri 'none'; "
@@ -91,25 +95,33 @@ class SignIn:
     address, issue time and random part, so the server can recognise its own
     challenges without storing them, and nobody can fill a table to lock the
     admin out. Used nonces are remembered until they expire, and only a valid
-    admin signature adds one. A restart just means signing in again."""
+    admin signature adds one. A restart just means signing in again.
 
-    def __init__(self, public_url: str, admin_address: str, key: bytes | None = None):
+    The same class signs voice grants (path /oauth/grant, its own statement):
+    there the message also carries a Request ID naming the exact authorization
+    request, and the MAC covers the URI, statement and request, so a signature
+    for one purpose or one request can never be used for another."""
+
+    def __init__(self, public_url: str, admin_address: str, key: bytes | None = None, *,
+                 path: str = "/admin", statement: str = STATEMENT):
         self.domain = urlparse(public_url).netloc
-        self.uri = f"{public_url}/admin"
+        self.uri = f"{public_url}{path}"
+        self.statement = statement
         self.admin = admin_address.lower()
         self._key = key or secrets.token_bytes(32)
         self._used: dict[str, datetime] = {}
         self._lock = threading.Lock()
 
-    def _mac(self, address: str, issued: str, rand: str) -> str:
-        return hmac.new(self._key, f"{self.domain}|{address}|{issued}|{rand}".encode(), "sha256").hexdigest()[:32]
+    def _mac(self, address: str, issued: str, rand: str, request_id: str | None, statement: str) -> str:
+        data = f"{self.domain}|{self.uri}|{statement}|{address}|{issued}|{rand}|{request_id or ''}"
+        return hmac.new(self._key, data.encode(), "sha256").hexdigest()[:32]
 
-    def _message(self, address: str, issued: datetime, nonce: str) -> str:
-        return "\n".join([
+    def _message(self, address: str, issued: datetime, nonce: str, request_id: str | None, statement: str) -> str:
+        lines = [
             f"{self.domain} wants you to sign in with your Ethereum account:",
             address,
             "",
-            STATEMENT,
+            statement,
             "",
             f"URI: {self.uri}",
             "Version: 1",
@@ -117,34 +129,42 @@ class SignIn:
             f"Nonce: {nonce}",
             f"Issued At: {issued.strftime('%Y-%m-%dT%H:%M:%SZ')}",
             f"Expiration Time: {(issued + CHALLENGE_TTL).strftime('%Y-%m-%dT%H:%M:%SZ')}",
-        ])
+        ]
+        if request_id is not None:
+            lines.append(f"Request ID: {request_id}")
+        return "\n".join(lines)
 
-    def challenge(self, address, now: datetime | None = None) -> str:
+    def challenge(self, address, now: datetime | None = None, request_id: str | None = None,
+                  statement: str | None = None) -> str:
         if not isinstance(address, str) or not ADDRESS_RE.match(address):
             raise admin.Refused("connect a wallet first")
+        statement = statement or self.statement
         now = (now or _now()).replace(microsecond=0)
         address = to_checksum_address(address)
         rand = secrets.token_hex(16)
-        nonce = rand + self._mac(address, now.strftime("%Y-%m-%dT%H:%M:%SZ"), rand)
-        return self._message(address, now, nonce)
+        nonce = rand + self._mac(address, now.strftime("%Y-%m-%dT%H:%M:%SZ"), rand, request_id, statement)
+        return self._message(address, now, nonce, request_id, statement)
 
-    def verify(self, message, signature, now: datetime | None = None) -> str:
+    def verify(self, message, signature, now: datetime | None = None, request_id: str | None = None,
+               statement: str | None = None) -> str:
         """The admin address, if this is an unused, unexpired challenge from this server
-        signed by the admin wallet."""
+        (for request_id and statement, when given) signed by the admin wallet."""
         if not isinstance(message, str) or not isinstance(signature, str):
             raise admin.Refused("bad request")
+        statement = statement or self.statement
         now = now or _now()
         lines = message.split("\n")
         unknown = admin.Refused("this sign-in request is unknown or already used; start again")
-        nonce = re.fullmatch(r"Nonce: ([0-9a-f]{32})([0-9a-f]{32})", lines[8]) if len(lines) == 11 else None
+        expected = 11 if request_id is None else 12
+        nonce = re.fullmatch(r"Nonce: ([0-9a-f]{32})([0-9a-f]{32})", lines[8]) if len(lines) == expected else None
         issued_m = re.fullmatch(r"Issued At: (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)", lines[9]) if nonce else None
         if not issued_m or not ADDRESS_RE.match(lines[1]):
             raise unknown
         rand, mac = nonce.groups()
         issued_s = issued_m.group(1)
         issued = datetime.strptime(issued_s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        if (not hmac.compare_digest(mac, self._mac(lines[1], issued_s, rand))
-                or self._message(lines[1], issued, rand + mac) != message):
+        if (not hmac.compare_digest(mac, self._mac(lines[1], issued_s, rand, request_id, statement))
+                or self._message(lines[1], issued, rand + mac, request_id, statement) != message):
             raise unknown
         if not timedelta(0) <= now - issued <= CHALLENGE_TTL:
             raise admin.Refused("this sign-in request expired; start again")
@@ -222,9 +242,10 @@ def end_session(conn, token) -> None:
 
 # ---------------------------------------------------------------- routes
 
-def add_routes(server, app) -> None:
-    """Register /admin and /admin/api/* on the MCP server's Starlette app.
-    `app` is the aingram_server.AIngram holding settings and the current policy."""
+def add_routes(server, app, oauth=None) -> None:
+    """Register /admin, /admin/api/*, and the brain's grant page /oauth/grant with
+    /oauth/api/*, on the MCP server's Starlette app. `app` is the aingram_server.AIngram
+    holding settings and the current policy; `oauth` its aingram_oauth.AIngramOAuth."""
     s = app.settings
     public = urlparse(s.public_url)  # normalised by Settings: lowercase host, no default port
     origin = f"{public.scheme}://{public.netloc}"
@@ -232,6 +253,7 @@ def add_routes(server, app) -> None:
     secure = public.scheme == "https"
     cookie = "__Host-aingram_admin" if secure else "aingram_admin"
     signin = SignIn(s.public_url, s.admin_address)
+    grant_signin = SignIn(s.public_url, s.admin_address, path="/oauth/grant")
     drafts = admin.PolicyDrafts()
     limiter = RateLimit(PREPARE_PER_MINUTE, timedelta(minutes=1))
     pages = {path: ((STATIC_DIR / name).read_bytes(), ctype) for path, (name, ctype) in STATIC.items()}
@@ -302,6 +324,39 @@ def add_routes(server, app) -> None:
 
     for path in STATIC:
         server.custom_route(f"/{path}", methods=["GET"], include_in_schema=False)(static)
+
+    # -- granting the brain voice to a connector (claude.ai). No session: the admin
+    # wallet signs this one request, and only that signature creates a grant.
+
+    def grant_request(conn, d):
+        if oauth is None:
+            raise admin.Refused("OAuth is not enabled on this server")
+        sealed = d.get("r")
+        about = oauth.describe(conn, sealed)
+        return sealed, about, aingram_oauth.grant_statement(about)
+
+    @route("/oauth/api/describe", ["POST"], auth=False, post=True)
+    def grant_describe(conn, policy, d):
+        _, about, statement = grant_request(conn, d)
+        return reply({**about, "statement": statement, "server": s.public_url})
+
+    @route("/oauth/api/challenge", ["POST"], auth=False, post=True)
+    def grant_challenge(conn, policy, d):
+        sealed, about, statement = grant_request(conn, d)
+        return reply({"message": grant_signin.challenge(d.get("address"), request_id=about["request_id"],
+                                                        statement=statement)})
+
+    @route("/oauth/api/approve", ["POST"], auth=False, post=True)
+    def grant_approve(conn, policy, d):
+        sealed, about, statement = grant_request(conn, d)
+        grant_signin.verify(d.get("message"), d.get("signature"), request_id=about["request_id"],
+                            statement=statement)
+        return reply({"redirect": oauth.approve(conn, sealed)})
+
+    @route("/oauth/api/deny", ["POST"], auth=False, post=True)
+    def grant_deny(conn, policy, d):
+        sealed, _, _ = grant_request(conn, d)
+        return reply({"redirect": oauth.deny(sealed)})
 
     # -- sign-in
 

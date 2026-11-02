@@ -1,5 +1,7 @@
-"""AIngram MCP server: five tools over streamable HTTP, bearer-key auth,
-plus the admin page at /admin (aingram_web.py).
+"""AIngram MCP server: five tools over streamable HTTP, the admin page at
+/admin (aingram_web.py), and OAuth for the brain's claude.ai connector
+(aingram_oauth.py). Code authenticates with a static bearer key; the brain
+with OAuth tokens granted by the admin wallet.
 
 Run behind a TLS reverse proxy:  python aingram_server.py
 Settings come from the environment (.env.example). The policy in force is the
@@ -9,12 +11,11 @@ picked up on the next request. If the approved policy can't be loaded (its
 text no longer validates after an upgrade, or was altered), memory stays off
 and the admin page says why.
 
-The caller's voice comes only from their key. No tool argument can set it.
+The caller's voice comes only from their key or grant. No tool argument can set it.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import sqlite3
@@ -23,10 +24,8 @@ import threading
 from contextlib import contextmanager
 from urllib.parse import urlparse
 
-import anyio.to_thread
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.auth.provider import AccessToken
-from mcp.server.auth.settings import AuthSettings
+from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
@@ -35,6 +34,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 import aingram_core as core
+import aingram_oauth
 import aingram_service as svc
 import aingram_web
 from aingram_config import ConfigError, Settings, load_env
@@ -105,32 +105,18 @@ class AIngram:
             return None if row is None else (row["key_id"], row["voice"])
 
 
-class KeyVerifier:
-    """Bearer secrets are looked up by SHA-256. Unknown or revoked keys get a 401."""
-
-    def __init__(self, app: AIngram):
-        self.app = app
-
-    async def verify_token(self, token: str) -> AccessToken | None:
-        found = await anyio.to_thread.run_sync(self.app.lookup_key, token)
-        if found is None:
-            return None
-        key_id, voice = found
-        # Keep a hash, not the secret, in the request context.
-        return AccessToken(token=hashlib.sha256(token.encode()).hexdigest(), client_id=key_id, scopes=[voice])
-
-
 def _caller(ctx: Context) -> tuple[str, str]:
-    """(key_id, voice) of the authenticated caller for this request."""
+    """(key_id, voice) of the authenticated caller for this request. Every token the
+    provider accepts (a static key or an OAuth grant) names its key as `subject`."""
     token = None
     request = getattr(ctx.request_context, "request", None)
     user = request.scope.get("user") if isinstance(request, Request) else None
     if user is not None and hasattr(user, "access_token"):
         token = user.access_token
     token = token or get_access_token()
-    if token is None or not token.scopes or token.scopes[0] not in ("brain", "code"):
+    if token is None or not token.subject or not token.scopes or token.scopes[0] not in ("brain", "code"):
         raise ToolError("not authenticated")
-    return token.client_id, token.scopes[0]
+    return token.subject, token.scopes[0]
 
 
 def _json(obj) -> str:
@@ -139,12 +125,16 @@ def _json(obj) -> str:
 
 def build_server(app: AIngram) -> MCPServer:
     public = app.settings.public_url
+    oauth = aingram_oauth.AIngramOAuth(app)
     server = MCPServer(
         name="aingram",
         instructions=INSTRUCTIONS,
-        token_verifier=KeyVerifier(app),
-        auth=AuthSettings(issuer_url=public, resource_server_url=f"{public}/mcp",
-                          validate_token_resource=False),
+        auth_server_provider=oauth,
+        auth=AuthSettings(
+            issuer_url=public, resource_server_url=f"{public}/mcp", validate_token_resource=True,
+            client_registration_options=ClientRegistrationOptions(
+                enabled=True, valid_scopes=[aingram_oauth.SCOPE], default_scopes=[aingram_oauth.SCOPE]),
+            revocation_options=RevocationOptions(enabled=True)),
     )
 
     def run(ctx: Context, fn):
@@ -219,7 +209,7 @@ def build_server(app: AIngram) -> MCPServer:
     async def healthz(_request: Request) -> JSONResponse:
         return JSONResponse({"ok": True})
 
-    aingram_web.add_routes(server, app)
+    aingram_web.add_routes(server, app, oauth)
     return server
 
 
@@ -237,9 +227,9 @@ def create_app(settings: Settings):
     """The ASGI app. A policy that can't be loaded leaves memory off, not the server down."""
     app = AIngram(settings)
     server = build_server(app)
-    return server.streamable_http_app(
+    return aingram_oauth.limit_registrations(server.streamable_http_app(
         streamable_http_path="/mcp", json_response=True, stateless_http=True,
-        transport_security=transport_security(settings), host=settings.host)
+        transport_security=transport_security(settings), host=settings.host))
 
 
 def main() -> int:
