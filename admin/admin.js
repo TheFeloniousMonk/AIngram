@@ -428,18 +428,47 @@ function showSecret(r) {
 async function policy() {
   const data = await api("/admin/api/policy");
   const text = data.approved ? data.approved.body : data.draft;
-  state.policyBody = data.approved ? data.approved.body : "";
-  $("policy-state").textContent = data.approved
-    ? `Approved policy ${data.approved.sha256.slice(0, 12)}. Edit it below, check the changes, then approve them in your wallet.`
-    : state.me && state.me.policy_problem
-      ? "This is the approved policy, which no longer loads. Fix what the banner names, then approve it in your wallet."
-      : "Nothing is approved yet. This is a starting draft: read it, adjust it, then approve it in your wallet.";
+  state.policy = data;
+  state.policyBody = data.approved ? data.approved.body : null;
   if (!$("policy-text").dataset.dirty) $("policy-text").value = text;
   show($("policy-error"), false);
   show($("policy-diff"), false);
+  policyStatus();
 }
 
-$("policy-text").addEventListener("input", () => { $("policy-text").dataset.dirty = "1"; });
+// What the page leads with: whether a policy is in force, and whether there is anything to approve.
+function policyStatus() {
+  const data = state.policy;
+  if (!data) return;
+  const edited = state.policyBody !== null && $("policy-text").value !== state.policyBody;
+  const status = $("policy-status"), approve = $("policy-approve");
+  if (data.approved && !edited) {
+    status.className = "status ok";
+    fill(status, h("strong", {}, "✓ This policy is in force."),
+      ` Approved ${data.approved.approved_at ? when(data.approved.approved_at) : ""} as ${data.approved.sha256.slice(0, 12)}.`);
+    $("policy-state").textContent = "To change it, edit the text below; you'll be able to review the changes and approve them in your wallet.";
+    approve.disabled = true;
+    approve.textContent = "Nothing to approve";
+  } else if (data.approved) {
+    status.className = "status pending";
+    fill(status, h("strong", {}, "Unapproved changes."),
+      ` The policy in force is still ${data.approved.sha256.slice(0, 12)}. Check the changes, then approve them in your wallet, or discard them.`);
+    $("policy-state").textContent = "";
+    approve.disabled = false;
+    approve.textContent = "Approve changes in wallet";
+  } else {
+    status.className = "status pending";
+    fill(status, h("strong", {}, "No policy is in force."),
+      state.me && state.me.policy_problem
+        ? " The approved policy below no longer loads. Fix what the banner names, then approve it in your wallet."
+        : " Memory is off. Read this starting draft, adjust it, then approve it in your wallet.");
+    $("policy-state").textContent = "";
+    approve.disabled = false;
+    approve.textContent = "Approve in wallet";
+  }
+}
+
+$("policy-text").addEventListener("input", () => { $("policy-text").dataset.dirty = "1"; policyStatus(); });
 $("policy-reset").addEventListener("click", () => { delete $("policy-text").dataset.dirty; policy(); });
 
 async function checkPolicy(text) {

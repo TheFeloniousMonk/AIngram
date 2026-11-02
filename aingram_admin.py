@@ -212,7 +212,10 @@ def admin_log(conn, limit: int = LIST_MAX) -> list[dict]:
 def policy_state(conn, settings: Settings, policy: Policy | None) -> dict:
     """The approved policy text, or the first draft to start from when none is approved."""
     if policy is not None:
-        return {"approved": {"sha256": policy.sha256, "body": svc.policy_body(conn, policy.sha256)}}
+        row = conn.execute("SELECT at FROM admin_log WHERE event = 'done' AND action = ? ORDER BY log_id DESC LIMIT 1",
+                           (core.canonical({"action": "policy.approve", "sha256": policy.sha256}).decode(),)).fetchone()
+        return {"approved": {"sha256": policy.sha256, "body": svc.policy_body(conn, policy.sha256),
+                             "approved_at": row["at"] if row else None}}
     # An approved policy that no longer loads (say, after an upgrade added a setting) is the
     # best starting point for fixing it.
     approved = svc.approved_policy_hash(conn, settings.server_name, settings.admin_address)
