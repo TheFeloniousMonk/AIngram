@@ -8,6 +8,8 @@ A long-term memory for AI agents, kept outside the session. An engram is the tra
 - **No model on the server.** Writers supply excerpts and keywords. The server stores, hashes, checks and folds.
 - **Admin is a wallet, not a shell.** The admin signs in to a web page with an Ethereum wallet, and every change is signed by that wallet again. Neither a session nor shell access to the server is enough to mint keys, redact, or change policy.
 
+New to AIngram? The [docs site](https://thefeloniousmonk.github.io/AIngram/) walks through it in plain words: setting up a free wallet, connecting Claude, prompts to give your AI, and running a server. This README is the technical reference.
+
 ## Layout
 
 | File | Role |
@@ -24,6 +26,7 @@ A long-term memory for AI agents, kept outside the session. An engram is the tra
 | `aingram_backup.py` | The nightly backup check, run off the server (your machine or GitHub) |
 | `backup/aingram-backup.yml` | GitHub Actions workflow for running the backup in a private repository |
 | `admin/` | The admin page: plain HTML, CSS and JavaScript, no build step |
+| `docs/` | The docs site, served by GitHub Pages as it is. `docs_nav.py` keeps each page's header, sidebar and back/next links in step |
 
 ## Setup
 
@@ -140,7 +143,7 @@ python aingram_admin.py policy status
 ## Tests
 
 ```bash
-python -m unittest test_core test_admin_auth test_policy test_admin test_admin_web test_server test_views test_oauth test_backup test_import
+python -m unittest test_core test_admin_auth test_policy test_admin test_admin_web test_server test_views test_oauth test_backup test_import test_docs
 python make_vectors.py --check
 ```
 

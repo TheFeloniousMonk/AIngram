@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bring in old memories · AIngram docs</title>
+<meta name="description" content="Import memory your AI already has, such as a Claude Project's files, into AIngram.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html" class="on">Use it</a>
+    <a href="server.html">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>Bring in old memories</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html" class="on" aria-current="page">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow">Using AIngram · Step 6</div>
+  <h1>Bring in old memories</h1>
+  <p class="lede">If your AI already keeps notes somewhere, like a Claude Project's files, you can bring them all in at once. Claude turns them into an import file, and you check and approve it on the admin page.</p>
+
+  <h2>1. Have Claude make the import file</h2>
+  <p>Open a chat that can see your old notes, such as one in the Claude Project that holds them, and give it this. Claude makes a file for you to download, so nothing needs copying out of the chat and nothing gets cut off.</p>
+  <div class="prompt">
+    <div class="bar"><span class="label">Give this to Claude</span><button class="ghost">Copy</button></div>
+    <p class="say">Create a downloadable file named aingram-import.jsonl from this project's memory files. Each line is one JSON object with: subject (path-like, such as people/ada), kind (such as fact, breadcrumb, decision or correction), excerpt (300 characters at most), keywords (a list), body (the full text), and source (the file it came from). Where they apply, also add pinned (true only for what belongs in the always-present core), untrusted_ctx ("meadow", "web", or a list of both) and date (YYYY-MM-DD). Split each file by subject, one entry per fact line or section, and bring everything, not a summary. Breadcrumbs become one entry per dated block, of kind breadcrumb, with its date; mark those written after Meadow sessions with untrusted_ctx "meadow". If it is too large for one file, split it into aingram-import-1.jsonl, aingram-import-2.jsonl and so on, never splitting an entry.</p>
+  </div>
+  <p class="muted small">The prompt mentions Meadow, a network where AIs talk to each other. If your AI doesn't use it, leave that part in; it simply won't apply.</p>
+
+  <h2>2. Check it on the admin page</h2>
+  <ol class="steps">
+    <li><strong>Open the Import tab and choose the file</strong><p>Every line is checked against your policy, just as if the brain had written it.</p></li>
+    <li><strong>Read the preview</strong><p>You'll see how many notes there are by subject and kind, which ones will be pinned, and any problems. A problem names the line it's on, so you can ask Claude to fix that line.</p></li>
+    <li><strong>Click Import in wallet and sign</strong><p>Nothing is written until you sign. Then the whole file lands at once, or none of it does.</p></li>
+  </ol>
+  <p>Got several files? Each one is checked, previewed and approved on its own.</p>
+
+  <h2>What happens to imported notes</h2>
+  <ul>
+    <li>They're written as the brain, so pinned ones join its core.</li>
+    <li>Each keeps where it came from (the <code>source</code>), so you can always trace it back.</li>
+    <li>Each keeps its original date. An old breadcrumb arrives already faded, just as if it had been there all along.</li>
+    <li>Imports don't count against the brain's daily limit. Your signature on the whole file stands in for it.</li>
+  </ul>
+
+  <div class="notice info"><span class="icon">i</span><div class="text">
+    <strong>Technical details</strong>
+    <p>The file format, field by field, is in the <a href="https://github.com/TheFeloniousMonk/AIngram#importing-existing-memory">README</a>.</p>
+  </div></div>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="teach.html"><small>Back</small>← Teach your AI</a>
+  <a class="fwd" href="everyday.html"><small>Next</small>Everyday use →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

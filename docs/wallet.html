@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your wallet · AIngram docs</title>
+<meta name="description" content="Set up a free Rabby or MetaMask wallet to approve changes to your AIngram. No fees, no crypto needed.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html" class="on">Use it</a>
+    <a href="server.html">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>Your wallet</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html" class="on" aria-current="page">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow">Using AIngram · Step 1</div>
+  <h1>Your wallet: the key to your AIngram</h1>
+  <p class="lede">AIngram uses a crypto wallet, but not for money. It's the key that proves a change really came from you. Setting one up takes about ten minutes.</p>
+
+  <h2>Why a wallet?</h2>
+  <p>Most websites trust a password. Passwords get guessed, reused and stolen. A wallet is different: it's a key that lives in your browser and never leaves it.</p>
+  <p>Whenever you change something in AIngram, like letting a new AI in, forgetting a note or changing the rules, AIngram asks your wallet to <strong>sign</strong>. Signing is like initialling a page. It proves it was you, and it covers exactly that one change.</p>
+  <p>So someone who steals your login, or even breaks into the server itself, still can't change your AI's memory. They don't have your key.</p>
+
+  <div class="notice ok"><span class="icon">✓</span><div class="text">
+    <strong>It's free. Really.</strong>
+    <p>The wallet apps are free. And AIngram only ever asks your wallet to sign a <em>message</em>. Nothing is sent to a blockchain, so there are no fees and no "gas". Your wallet never needs any crypto in it, not even a cent.</p>
+  </div></div>
+
+  <h2>Pick a wallet</h2>
+  <p>Rabby and MetaMask are the two most popular, and both work the same way with AIngram. They run in Chrome, Brave and Edge on a computer. Pick one; you can follow along with either below.</p>
+  <p class="muted small">Already have a wallet you use for crypto? Make a new account in it just for AIngram, one that holds no money. Then even a mistake can't cost you anything.</p>
+
+  <div class="choose" role="tablist" aria-label="Choose your wallet">
+    <button data-w="rabby" role="tab">Rabby</button>
+    <button data-w="metamask" role="tab">MetaMask</button>
+  </div>
+
+  <h2>Install it</h2>
+  <ol class="steps" data-for="rabby">
+    <li><strong>Go to rabby.io</strong><p>Type the address yourself. Don't search the Chrome Web Store: there are fake wallets there that look real.</p></li>
+    <li><strong>Click Download, then the Chrome extension</strong><p>This takes you to Rabby's page in the Chrome Web Store. Click <em>Add to Chrome</em>, then <em>Add extension</em>.</p></li>
+    <li><strong>Pin it where you can see it</strong><p>Click the puzzle-piece icon at the top right of Chrome and pin Rabby, so its icon is always in your toolbar.</p></li>
+  </ol>
+  <ol class="steps" data-for="metamask" hidden>
+    <li><strong>Go to metamask.io</strong><p>Type the address yourself. Don't search the Chrome Web Store: there are fake wallets there that look real.</p></li>
+    <li><strong>Click Download, then Install MetaMask for Chrome</strong><p>This takes you to MetaMask's page in the Chrome Web Store. Click <em>Add to Chrome</em>, then <em>Add extension</em>.</p></li>
+    <li><strong>Pin it where you can see it</strong><p>Click the puzzle-piece icon at the top right of Chrome and pin MetaMask, so the fox icon is always in your toolbar.</p></li>
+  </ol>
+
+  <h2>Create your wallet</h2>
+  <p class="muted small">Wallet apps update their screens often, so the wording you see may differ a little. The steps stay the same.</p>
+  <ol class="steps" data-for="rabby">
+    <li><strong>Open Rabby and choose to create a new address</strong><p>Not "import": that's for a wallet you already have.</p></li>
+    <li><strong>Set a password</strong><p>This unlocks Rabby on this computer. It's not your key, just the lock on the drawer it's kept in.</p></li>
+    <li><strong>Write down your recovery phrase</strong><p>Rabby shows you 12 words. Write them on paper, in order. Read the box below before you go on.</p></li>
+    <li><strong>Confirm the words</strong><p>Rabby asks you for some of the words to check you wrote them down. Then you're done.</p></li>
+  </ol>
+  <ol class="steps" data-for="metamask" hidden>
+    <li><strong>Open MetaMask and choose Create a new wallet</strong><p>Not "I have an existing wallet": that's for one you already have. If it offers to sign up with Google or Apple, either way works; this guide uses the recovery phrase.</p></li>
+    <li><strong>Set a password</strong><p>This unlocks MetaMask on this computer. It's not your key, just the lock on the drawer it's kept in.</p></li>
+    <li><strong>Write down your recovery phrase</strong><p>MetaMask shows you 12 words. Write them on paper, in order. Read the box below before you go on.</p></li>
+    <li><strong>Confirm the words</strong><p>MetaMask asks you for some of the words to check you wrote them down. Then you're done.</p></li>
+  </ol>
+
+  <div class="notice err"><span class="icon">!</span><div class="text">
+    <strong>Your 12 words are the master key</strong>
+    <p>Anyone who has them can act as you. Keep them on paper, somewhere safe. Never type them into a website, a chat, or an AI, including Claude. Nobody from AIngram, Rabby or MetaMask will ever ask for them.</p>
+    <p>If your computer breaks, these words put your wallet back on a new one. Without them, nobody can recover it.</p>
+  </div></div>
+
+  <h2>Find your wallet address</h2>
+  <p>Your address is a long code starting with <code>0x</code>. It's <strong>safe to share</strong>: it works like an email address, not a password. Click your account name at the top of the wallet to copy it.</p>
+  <p>Whoever runs your AIngram server needs it once, to make your wallet the admin. If that's you, you'll paste it in during <a href="install.html">server setup</a>.</p>
+
+  <h2 id="what-signing-looks-like">What signing looks like</h2>
+  <p>When AIngram needs you, your wallet pops up with a message. Here's the difference between what AIngram asks for and what it never will:</p>
+
+  <div class="compare">
+    <div class="popup">
+      <div class="ptitle">Signature request</div>
+      <div class="msg">memory.example.com wants you to sign in with your Ethereum account:
+0x52b1…9f0e
+
+Sign in to the AIngram admin page. Signing in only lets you look; every change asks your wallet again.
+
+URI: https://memory.example.com/admin</div>
+      <div class="fee"><span class="muted">Fee</span><b>None</b></div>
+      <div class="notice ok"><span class="icon">✓</span><div class="text"><strong>This is AIngram</strong>A message to sign, your server's address, no fee.</div></div>
+    </div>
+    <div class="popup bad">
+      <div class="ptitle">Transaction</div>
+      <div class="msg">Approve token spending
+Contract: 0x9c3e…41aB
+Network: Ethereum</div>
+      <div class="fee"><span class="muted">Network fee</span><b>$2.14</b></div>
+      <div class="notice err"><span class="icon">✕</span><div class="text"><strong>Not AIngram. Reject it.</strong>AIngram never asks for a transaction, an approval or a fee.</div></div>
+    </div>
+  </div>
+
+  <p class="muted small">The message mentions Ethereum because that's the kind of account a wallet holds. Nothing is sent anywhere.</p>
+
+  <h3>Four rules for signing</h3>
+  <ol>
+    <li><strong>AIngram only asks you to sign a message.</strong> Never a transaction, never a fee.</li>
+    <li><strong>Check the web address in the message.</strong> It should be your own AIngram server, the one in your browser's address bar.</li>
+    <li><strong>Read before you sign.</strong> Changes start with <code>AIngram admin command</code> and say exactly what will happen.</li>
+    <li><strong>Cancelling is always safe.</strong> If you cancel, nothing happens, and the page tells you so.</li>
+  </ol>
+
+  <h2>Stuck?</h2>
+  <p>Your AI can walk you through it. Describe what's on your screen; it never needs your 12 words.</p>
+  <div class="prompt">
+    <div class="bar"><span class="label">Give this to your AI</span><button class="ghost">Copy</button></div>
+    <p class="say">I'm setting up a crypto wallet browser extension for the first time, only to sign in to an app. I'm stuck. Here's what I see on screen: [describe it, or attach a screenshot]. Walk me through the next step, one step at a time, in plain words. Never ask for my recovery phrase, and stop me if I'm about to type it anywhere.</p>
+  </div>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="how-it-works.html"><small>Back</small>← How it works</a>
+  <a class="fwd" href="sign-in.html"><small>Next</small>Sign in →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

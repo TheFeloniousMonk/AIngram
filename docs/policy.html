@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your first policy · AIngram docs</title>
+<meta name="description" content="Read, adjust and approve the rules for your AI's memory.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html" class="on">Use it</a>
+    <a href="server.html">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>Your first policy</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html" class="on" aria-current="page">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow">Using AIngram · Step 3</div>
+  <h1>Approve your first policy</h1>
+  <p class="lede">The policy is the rulebook: which AI may write what, how much, and what it may forget. A new server starts with memory switched off until you approve one. You'll get a sensible draft to start from.</p>
+
+  <h2>What the draft says, in plain words</h2>
+  <p>Open the <strong>Policy</strong> tab. The draft is a text file with a comment above each part. Here's what it sets up:</p>
+  <table class="plain">
+    <thead><tr><th>Who</th><th>May write</th><th>Per day</th><th>May forget</th></tr></thead>
+    <tbody>
+      <tr><td data-label="Who"><strong>The brain</strong><br><span class="muted small">Claude in your chats</span></td><td data-label="May write">Anything, and may pin notes to its core</td><td data-label="Per day">300 notes</td><td data-label="May forget">Its own notes</td></tr>
+      <tr><td data-label="Who"><strong>Code</strong><br><span class="muted small">Claude Code</span></td><td data-label="May write">Decisions, things it shipped and gotchas, only under your project folders</td><td data-label="Per day">60 notes</td><td data-label="May forget">Nothing</td></tr>
+      <tr><td data-label="Who"><strong>You</strong><br><span class="muted small">the admin</span></td><td data-label="May write">Only "forget" markers, from the admin page</td><td data-label="Per day">No limit</td><td data-label="May forget">Anything</td></tr>
+    </tbody>
+  </table>
+  <p>Some subjects belong to the brain alone, whatever else the rules say: <code>self</code>, <code>people</code>, <code>ways-of-working</code> and <code>identity</code>. Claude Code can read them but never change them.</p>
+  <p>The rest sets how quickly unused notes fade (half strength after 180 days, or 30 days for breadcrumbs, the "where we left off" notes) and how much the brain reads at the start of each chat.</p>
+
+  <h2>The one line to change</h2>
+  <p>Under <code>code:</code>, the draft lets Claude Code write to placeholder projects:</p>
+  <pre>may_write_subjects: ["project-a/**", "project-b/**", "aingram/**"]</pre>
+  <p>Swap those for the projects you use Claude Code on. Short, lowercase names with dashes work best. <code>/**</code> means "this folder and everything in it".</p>
+  <pre>may_write_subjects: ["garden-app/**", "website/**"]</pre>
+  <p class="muted small">Not using Claude Code? Leave it as it is. It does nothing until you create a key for Code.</p>
+
+  <h2>Approve it</h2>
+  <ol class="steps">
+    <li><strong>Click Check changes</strong><p>The page checks the policy is valid and shows what you changed, in green and red. A mistake is caught here, before anything is signed.</p></li>
+    <li><strong>Click Approve in wallet</strong><p>Your wallet shows a message starting <code>AIngram admin command</code>. For a policy, it shows a fingerprint of the text rather than the whole text. The page has already checked that the fingerprint matches what you just reviewed.</p></li>
+    <li><strong>Sign</strong><p>A green banner confirms the policy is in force. Memory is now on.</p></li>
+  </ol>
+
+  <div class="notice info"><span class="icon">i</span><div class="text">
+    <strong>You can change it any time</strong>
+    <p>Come back to the Policy tab, edit, check and approve again. Every approved version is kept, so you can always see what the rules were and when they changed.</p>
+  </div></div>
+
+  <h2>Want a hand?</h2>
+  <p>Your AI can explain any part of the policy or suggest a change. Copy the policy text from the page into a chat with this:</p>
+  <div class="prompt">
+    <div class="bar"><span class="label">Give this to your AI</span><button class="ghost">Copy</button></div>
+    <p class="say">This is the policy for my AIngram, the long-term memory you use. Explain in plain words what it lets each voice do. Then suggest any changes for how I work: [say how you'd like it to work]. Show the changed lines exactly, keep everything else as it is, and say in one line why for each change.</p>
+  </div>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="sign-in.html"><small>Back</small>← Sign in</a>
+  <a class="fwd" href="connect.html"><small>Next</small>Connect Claude →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

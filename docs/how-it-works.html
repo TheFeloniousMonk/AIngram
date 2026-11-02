@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How it works · AIngram docs</title>
+<meta name="description" content="How AIngram stores, reads, fades and forgets your AI's memories, in plain words.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html" class="on">Start here</a>
+    <a href="wallet.html">Use it</a>
+    <a href="server.html">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>How it works</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html" class="on" aria-current="page">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow">Start here</div>
+  <h1>How it works</h1>
+  <p class="lede">You don't need any of this to use AIngram. But knowing the shape of it makes the rest of the guide easier to follow, and it shows why you can trust what's in there.</p>
+
+  <h2>A notebook that only grows</h2>
+  <p>AIngram is a notebook your AI writes in. Each note, called an <strong>entry</strong>, is short: what it's about (its <strong>subject</strong>, like <code>people/ada</code>), what sort of note it is (a fact, a decision, a correction), and a line or two of text.</p>
+  <p>Entries are only ever <em>added</em>. When something changes, your AI writes a new note that replaces the old one, and the old one stays in the record. So you can always see what your AI believed, and when.</p>
+  <p>Every entry also records:</p>
+  <ul>
+    <li><strong>Who wrote it.</strong> Each AI that connects gets its own <em>voice</em>. Claude in your chats is <em>the brain</em>; Claude Code is <em>Code</em>. A voice comes from the AI's own key, so one can't pretend to be the other.</li>
+    <li><strong>When.</strong></li>
+    <li><strong>Whether outside text was involved.</strong> If your AI had been reading a web page when it wrote the note, the note says so. That's a useful flag, because web pages can contain text meant to trick an AI.</li>
+  </ul>
+
+  <h2>Reading it back</h2>
+  <p>At the start of a chat, your AI calls <strong>boot</strong>. That hands it three things:</p>
+  <ol>
+    <li><strong>The core:</strong> a few <em>pinned</em> notes it should always know, like your name and how you like to work.</li>
+    <li><strong>The recent tail:</strong> its latest notes, so it can pick up where it left off.</li>
+    <li><strong>A digest:</strong> one line on what the other voice wrote, such as Claude Code noting it shipped something.</li>
+  </ol>
+  <p>During the chat it can <strong>recall</strong> more: everything on a subject, or a search by words.</p>
+
+  <h2>Old notes fade, like real memory</h2>
+  <p>Notes your AI never uses again slowly fade. A faded note drops out of the recent tail and sinks lower in searches, so it doesn't crowd out what matters now. It isn't deleted: it can still be found and read.</p>
+  <p>Using a note brings it back to full strength and makes it fade more slowly from then on. Pinned notes never fade. How fast notes fade is part of your <a href="policy.html">policy</a>.</p>
+
+  <h2>Forgetting is real</h2>
+  <p>When you tell AIngram to <strong>forget</strong> an entry, its words are removed from the database itself, not just hidden. A small marker stays behind saying "something was forgotten here", never what. Your AI is told that something was forgotten, so it isn't confused by the gap. Within a day the words are gone from your backups too.</p>
+
+  <h2>Sealed, so tampering shows</h2>
+  <p>Each entry is sealed with a fingerprint that includes the one before it, like a chain. Change any old entry, even by one letter, and every seal after it stops matching. The admin page can check the whole chain in a second, and your <a href="backups.html">nightly backup</a> checks it from outside the server, where nobody on the server can reach it.</p>
+
+  <h2>Your wallet holds the rules</h2>
+  <p>Who may write what, and how much, is set by your <strong>policy</strong>. Only your wallet can approve a policy, create a key for an AI, or forget an entry. Signing in to the admin page only lets you look; every change asks your wallet again, and shows you exactly what you're approving.</p>
+
+  <div class="notice info"><span class="icon">i</span><div class="text">
+    <strong>There's no AI on the server</strong>
+    <p>AIngram doesn't read your chats or decide what to remember. Your AI chooses what to write. The server stores it, seals it and hands it back.</p>
+  </div></div>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="index.html"><small>Back</small>← What AIngram is</a>
+  <a class="fwd" href="wallet.html"><small>Next</small>Your wallet →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

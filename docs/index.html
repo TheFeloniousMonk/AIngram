@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIngram docs</title>
+<meta name="description" content="AIngram is a long-term memory for your AI that it keeps between chats, and that only you can change.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html" class="on">Start here</a>
+    <a href="wallet.html">Use it</a>
+    <a href="server.html">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>What AIngram is</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html" class="on" aria-current="page">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow">AIngram docs</div>
+  <h1>A memory your AI keeps between chats</h1>
+  <p class="lede">Every new chat with an AI starts from nothing. AIngram gives it a notebook that lasts: it writes down what matters, reads it back next time, and you hold the only key that can change the rules.</p>
+
+  <div class="cards">
+    <div class="card"><h3>It remembers</h3><p>When a chat starts, your AI reads its notes first, so it already knows you, your projects and what you decided last time.</p></div>
+    <div class="card"><h3>Nothing is quietly rewritten</h3><p>Notes are only ever added, never edited behind your back. You can read every one of them.</p></div>
+    <div class="card"><h3>It can forget</h3><p>If something shouldn't be kept, you tell AIngram to forget it, and the words are gone for good.</p></div>
+    <div class="card"><h3>You're in charge</h3><p>Every change, from letting a new AI in to the rules themselves, has to be approved by you, with your wallet.</p></div>
+  </div>
+
+  <h2>Two ways in</h2>
+  <p>AIngram has two jobs: someone runs the server it lives on, and someone uses it. That can be the same person, or a friend can set it up for you.</p>
+
+  <div class="tracks">
+    <a class="card track" href="wallet.html">
+      <div class="who">For anyone · no coding</div>
+      <h3>Using AIngram</h3>
+      <p>About 30 minutes, start to finish.</p>
+      <ol>
+        <li>Get a free wallet</li>
+        <li>Sign in to your admin page</li>
+        <li>Approve your first policy</li>
+        <li>Connect Claude</li>
+        <li>Teach your AI, with a prompt we give you</li>
+        <li>Bring in what it already knows</li>
+      </ol>
+      <span class="go">Start with your wallet →</span>
+    </a>
+    <a class="card track tech" href="server.html">
+      <div class="who">Technical · the person setting it up</div>
+      <h3>Running a server</h3>
+      <p>Needs a small server, a web address and some comfort with a terminal.</p>
+      <ol>
+        <li>Get a server and a web address</li>
+        <li>Install AIngram</li>
+        <li>Put it behind HTTPS</li>
+        <li>Turn on nightly backups</li>
+      </ol>
+      <span class="go">Set up a server →</span>
+    </a>
+  </div>
+
+  <div class="notice info"><span class="icon">i</span><div class="text">
+    <strong>Doing both? Start with the wallet.</strong>
+    <p>The server asks for your wallet's address when you set it up, so it's easiest to have one first.</p>
+  </div></div>
+
+  <h2>Words you'll see</h2>
+  <dl class="terms">
+    <dt>Entry</dt><dd>One note in your AI's memory, like "Ada prefers short replies."</dd>
+    <dt>Subject</dt><dd>What a note is about, written like a folder path: <code>people/ada</code>, <code>projects/garden</code>.</dd>
+    <dt>Voice</dt><dd>Who wrote a note. <em>The brain</em> is Claude in a normal chat; <em>Code</em> is Claude Code, the coding assistant.</dd>
+    <dt>Wallet</dt><dd>A free browser add-on that holds your key. Here it's used for signing, never for money.</dd>
+    <dt>Signing</dt><dd>Approving something with your wallet. Like initialling a page: it proves it was you.</dd>
+    <dt>Policy</dt><dd>The rules: who may write what, and how much. You approve them, and you can change them.</dd>
+    <dt>Forget</dt><dd>Removing a note's words for good. A marker is left so the record still adds up.</dd>
+    <dt>MCP</dt><dd>The standard way AI apps plug into tools like AIngram. You'll only see it in a web address.</dd>
+  </dl>
+
+  <p class="muted small">AIngram is free and open source, under the MIT licence. The <a href="https://github.com/TheFeloniousMonk/AIngram#readme">README on GitHub</a> is the technical reference.</p>
+
+<!-- nav:next -->
+<div class="next">
+  <a class="fwd" href="how-it-works.html"><small>Next</small>How it works →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

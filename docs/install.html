@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install · AIngram docs</title>
+<meta name="description" content="Install AIngram on an Ubuntu server and run it as a service.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html">Use it</a>
+    <a href="server.html" class="on">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>Install</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html" class="on" aria-current="page">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow tech">Running a server</div>
+  <h1>Install AIngram</h1>
+  <p class="lede">These steps install AIngram on Ubuntu, run it as its own locked-down user, and start it whenever the server starts. Run them over SSH as a user that can use <code>sudo</code>.</p>
+
+  <h2>1. Install, as its own user</h2>
+  <p>AIngram runs as a user called <code>aingram</code> that can write its own database and nothing else. The code is owned by root, so the service can't change itself.</p>
+  <pre>sudo apt update
+sudo apt install -y git python3-venv
+sudo useradd --system --home-dir /var/lib/aingram --shell /usr/sbin/nologin aingram
+sudo install -d -m 0700 -o aingram -g aingram /var/lib/aingram
+sudo git clone https://github.com/TheFeloniousMonk/AIngram.git /opt/aingram
+sudo python3 -m venv /opt/aingram/.venv
+sudo /opt/aingram/.venv/bin/pip install -r /opt/aingram/requirements.txt</pre>
+
+  <h2>2. Settings</h2>
+  <p>Settings live in one file that only root can read. Copy the example and open it:</p>
+  <pre>sudo install -d -m 0755 /etc/aingram
+sudo install -m 0600 /opt/aingram/.env.example /etc/aingram/aingram.env
+sudo nano /etc/aingram/aingram.env</pre>
+  <p>Set these three; leave the rest as they are:</p>
+  <pre>AINGRAM_DB=/var/lib/aingram/aingram.db
+AINGRAM_ADMIN_ADDRESS=0x…your admin wallet address…
+AINGRAM_PUBLIC_URL=https://memory.example.com</pre>
+  <div class="notice warn"><span class="icon">!</span><div class="text">
+    <strong>Get these right first time</strong>
+    <p>Approvals are tied to the admin address and the web address. Changing either later switches memory off until the admin approves the policy again. Nothing is lost, but it's an extra step.</p>
+  </div></div>
+
+  <h2>3. Run it as a service</h2>
+  <p>Create <code>/etc/systemd/system/aingram.service</code> with <code>sudo nano</code>:</p>
+  <pre>[Unit]
+Description=AIngram memory server
+After=network.target
+
+[Service]
+User=aingram
+Group=aingram
+WorkingDirectory=/opt/aingram
+EnvironmentFile=/etc/aingram/aingram.env
+ExecStart=/opt/aingram/.venv/bin/python aingram_server.py
+Restart=on-failure
+UMask=0077
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/aingram
+
+[Install]
+WantedBy=multi-user.target</pre>
+  <p>Then start it, and check it answers:</p>
+  <pre>sudo systemctl daemon-reload
+sudo systemctl enable --now aingram
+curl http://127.0.0.1:8787/healthz</pre>
+  <p>If <code>curl</code> answers, AIngram is running. It only listens on the server itself for now; the next step puts it on your web address. If not, <code>sudo journalctl -u aingram -n 50</code> shows why.</p>
+
+  <h2>Updating later</h2>
+  <pre>sudo git -C /opt/aingram pull
+sudo /opt/aingram/.venv/bin/pip install -r /opt/aingram/requirements.txt
+sudo systemctl restart aingram</pre>
+  <p>Database changes apply themselves when the service restarts. If an update needs a new policy setting, the server starts with memory off and the admin page shows what to fix; nothing is lost.</p>
+
+  <p class="muted small">Every setting, and how each part works, is in the <a href="https://github.com/TheFeloniousMonk/AIngram#setup">README</a>.</p>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="server.html"><small>Back</small>← What you need</a>
+  <a class="fwd" href="https.html"><small>Next</small>Your web address and HTTPS →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

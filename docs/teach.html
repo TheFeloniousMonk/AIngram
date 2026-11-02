@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teach your AI · AIngram docs</title>
+<meta name="description" content="Prompts that teach Claude and Claude Code to use their AIngram memory well.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html" class="on">Use it</a>
+    <a href="server.html">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>Teach your AI</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html" class="on" aria-current="page">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow">Using AIngram · Step 5</div>
+  <h1>Teach your AI to use its memory</h1>
+  <p class="lede">Connecting AIngram gives Claude the tools. These instructions tell it when to use them: read at the start, write what lasts, and leave the rest.</p>
+
+  <h2>For Claude, in your chats</h2>
+  <p>Put this where Claude reads it in every chat: in a Claude Project's <em>instructions</em>, or in your <em>personal preferences</em> under Settings, so it applies everywhere.</p>
+  <div class="prompt">
+    <div class="bar"><span class="label">Instructions for Claude</span><button class="ghost">Copy</button></div>
+    <p class="say">You have a long-term memory called AIngram, connected as a tool.
+
+- At the start of every chat, call boot before you answer me, and use what it returns.
+- When we make a decision, when you learn something lasting about me, the people in my life or my work, or when I correct you, write a short note. Give it a subject like people/ada or projects/garden, a kind (fact, decision, correction or breadcrumb), and an excerpt under 300 characters.
+- Before writing to a subject, recall it to see what's there. If you're replacing an earlier note, say so with supersedes, rather than writing a duplicate.
+- Pin a note only if you'd want it in every single chat.
+- At the end of a long piece of work, write a breadcrumb: what we did and what's next.
+- If you read anything from the web or another outside source in this chat, set untrusted_ctx on the note to say where.
+- Never write down passwords, keys, recovery phrases or financial details.</p>
+  </div>
+
+  <h2>For Claude Code</h2>
+  <p>Add this to the <code>CLAUDE.md</code> file in each project Claude Code works on. Change <code>garden-app</code> to the project's name, matching the folder you gave it in your <a href="policy.html">policy</a>.</p>
+  <div class="prompt">
+    <div class="bar"><span class="label">For CLAUDE.md</span><button class="ghost">Copy</button></div>
+    <p class="say">## Memory
+
+This project uses AIngram, a long-term memory, through the `aingram` MCP server.
+
+- At the start of a session, call `boot`.
+- Write a note when you make a decision, ship something, or hit a gotcha worth remembering. Use kind `decision`, `shipped` or `gotcha`, and a subject under `garden-app/`, such as `garden-app/build`.
+- Recall a subject before writing to it, and use `supersedes` when a note replaces an earlier one.
+- Keep excerpts under 300 characters; put detail in the body.</p>
+  </div>
+
+  <h2>Things to say any time</h2>
+  <p>Once it's set up, you can just talk to Claude about its memory:</p>
+  <div class="prompt">
+    <div class="bar"><span class="label">See what it knows</span><button class="ghost">Copy</button></div>
+    <p class="say">What do you remember about me? Check AIngram and tell me what's there, grouped by subject.</p>
+  </div>
+  <div class="prompt">
+    <div class="bar"><span class="label">Remember something</span><button class="ghost">Copy</button></div>
+    <p class="say">Please remember this in AIngram: [what to remember].</p>
+  </div>
+  <div class="prompt">
+    <div class="bar"><span class="label">Fix something it got wrong</span><button class="ghost">Copy</button></div>
+    <p class="say">Your note about [subject] is out of date. The right version is: [correction]. Write a correction that supersedes the old note.</p>
+  </div>
+  <div class="prompt">
+    <div class="bar"><span class="label">Pick up where you left off</span><button class="ghost">Copy</button></div>
+    <p class="say">Check AIngram for what we decided about [topic] and where we left it, then let's carry on.</p>
+  </div>
+
+  <div class="notice info"><span class="icon">i</span><div class="text">
+    <strong>Asking Claude to forget</strong>
+    <p>With the default policy, the brain can forget notes it wrote itself, so "please forget what you noted about X" works. To forget anything else, use <em>Forget this entry</em> on the admin page.</p>
+  </div></div>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="connect.html"><small>Back</small>← Connect Claude</a>
+  <a class="fwd" href="import.html"><small>Next</small>Bring in old memories →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

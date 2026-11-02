@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nightly backups · AIngram docs</title>
+<meta name="description" content="Keep a checked copy of your AIngram off the server, every night.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html">Use it</a>
+    <a href="server.html" class="on">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>Nightly backups</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html" class="on" aria-current="page">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow tech">Running a server</div>
+  <h1>Nightly backups</h1>
+  <p class="lede">A backup does two jobs here. It keeps a copy of your AI's memory somewhere the server can't reach, and it checks every night that nobody has quietly rewritten the history, not even someone with full control of the server.</p>
+
+  <h2>What it checks</h2>
+  <p>Each night it downloads the memory with a backup token that can only download, and checks that:</p>
+  <ul>
+    <li>every seal in the chain still matches its note;</li>
+    <li>tonight's copy carries on from last night's, with nothing missing, rewritten or un-forgotten;</li>
+    <li>every policy was approved by the admin wallet the backup itself knows about;</li>
+    <li>no key vanished or came back after being revoked.</li>
+  </ul>
+  <p>If any check fails, it keeps the old copy and warns you.</p>
+  <p>It keeps two things: a <strong>ledger</strong> of every note's seal and subject, but none of its words, which proves the history was never rewritten; and the <strong>latest</strong> full copy, for restoring, replaced each night. So something you forget is gone from the backup within a day.</p>
+
+  <h2>1. Create a backup token</h2>
+  <p>On the admin page's <strong>Overview</strong>, under <em>Nightly backup</em>, give it a label like "home PC" and click <em>Create backup token</em>. Sign in your wallet. The page then shows what to do for each of the two options below, with your details already filled in.</p>
+
+  <h2>2a. On your own computer</h2>
+  <p>Needs Python 3.11 or newer and git, on Windows, macOS or Linux.</p>
+  <ol class="steps">
+    <li><strong>Get a copy of AIngram</strong><pre>git clone https://github.com/TheFeloniousMonk/AIngram.git
+cd AIngram
+pip install -r requirements-backup.txt</pre></li>
+    <li><strong>Run the install command the admin page showed you</strong><p>It looks like this, with your details in it:</p><pre>python aingram_backup.py install --url https://memory.example.com --token aigb_… --admin 0x…</pre><p>It makes a backup folder in your home folder, checks the first backup, and schedules a check every night: a scheduled task on Windows, or cron on macOS and Linux.</p></li>
+  </ol>
+  <p>If a check ever fails, a warning pops up on your screen and an <code>ALERT.txt</code> file appears in the backup folder.</p>
+
+  <h2>2b. On GitHub, with nothing to install</h2>
+  <ol class="steps">
+    <li><strong>Make a new private repository</strong><p>It must be private.</p></li>
+    <li><strong>Add the workflow</strong><p>Copy <a href="https://github.com/TheFeloniousMonk/AIngram/blob/main/backup/aingram-backup.yml">backup/aingram-backup.yml</a> from AIngram into your repository as <code>.github/workflows/aingram-backup.yml</code>.</p></li>
+    <li><strong>Add the secret and variables</strong><p>Under <em>Settings → Secrets and variables → Actions</em>, add the ones the admin page listed.</p></li>
+    <li><strong>Run it once</strong><p>From the <em>Actions</em> tab. After that it runs every night. If a check fails, the run fails and GitHub emails you.</p></li>
+  </ol>
+  <div class="notice warn"><span class="icon">!</span><div class="text">
+    <strong>What GitHub holds</strong>
+    <p>The ledger, which includes your subjects, is saved in your repository. The full copy is kept as a run download that GitHub deletes after 7 days, so GitHub holds a copy of your memory for up to a week. If that matters to you, use your own computer instead.</p>
+  </div></div>
+
+  <h2>If a token leaks</h2>
+  <p>A backup token can only download, never change anything. Still, revoke it on the Overview if it leaks, and make a new one.</p>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="https.html"><small>Back</small>← Your web address and HTTPS</a>
+  <a class="fwd" href="safety.html"><small>Next</small>Staying safe →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

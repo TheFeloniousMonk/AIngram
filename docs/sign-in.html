@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · AIngram docs</title>
+<meta name="description" content="Sign in to your AIngram admin page with your wallet.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html" class="on">Use it</a>
+    <a href="server.html">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>Sign in</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html" class="on" aria-current="page">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow">Using AIngram · Step 2</div>
+  <h1>Sign in to your admin page</h1>
+  <p class="lede">The admin page is where you look after your AI's memory: read it, approve the rules, let AIs in and forget things. It lives on your own AIngram server.</p>
+
+  <h2>Before you start</h2>
+  <ul>
+    <li>Your <a href="wallet.html">wallet</a>, set up in Chrome, Brave or Edge on a computer.</li>
+    <li>Your server's web address, from whoever set it up. It looks like <code>https://memory.example.com</code>.</li>
+    <li>Your wallet's address must be the one the server was set up with. Only that wallet can sign in.</li>
+  </ul>
+
+  <h2>Sign in</h2>
+  <ol class="steps">
+    <li><strong>Open your admin page</strong><p>Go to your server's address with <code>/admin</code> on the end, like <code>https://memory.example.com/admin</code>. Bookmark it.</p></li>
+    <li><strong>Click your wallet's button</strong><p>The page lists the wallets it finds in your browser. Click yours. If it says no wallet was found, unlock your wallet and reload the page.</p></li>
+    <li><strong>Let the page see your address</strong><p>The first time, your wallet asks whether to connect to this site. This only shares your address, which is safe to share.</p></li>
+    <li><strong>Sign the sign-in message</strong><p>Your wallet shows a message starting with your server's address and "wants you to sign in with your Ethereum account". Check the address is yours, then sign. No fee, nothing sent.</p></li>
+  </ol>
+
+  <div class="notice ok"><span class="icon">✓</span><div class="text">
+    <strong>You're in</strong>
+    <p>You'll see your wallet's short address at the top right, and the admin page's tabs.</p>
+  </div></div>
+
+  <h2>A quick tour</h2>
+  <table class="plain">
+    <thead><tr><th>Tab</th><th>What it's for</th></tr></thead>
+    <tbody>
+      <tr><td data-label="Tab"><strong>Overview</strong></td><td data-label="What it's for">The latest notes, a button to check the chain, downloads, backups, and your server's connection address.</td></tr>
+      <tr><td data-label="Tab"><strong>Memory</strong></td><td data-label="What it's for">Every note, by subject or by search. Open one to read it in full, or forget it.</td></tr>
+      <tr><td data-label="Tab"><strong>Keys</strong></td><td data-label="What it's for">The AIs you've let in. Add one for Claude Code, or switch one off.</td></tr>
+      <tr><td data-label="Tab"><strong>Policy</strong></td><td data-label="What it's for">The rules. Read them, change them, approve them.</td></tr>
+      <tr><td data-label="Tab"><strong>Import</strong></td><td data-label="What it's for">Bring in notes your AI already has from somewhere else.</td></tr>
+      <tr><td data-label="Tab"><strong>Activity</strong></td><td data-label="What it's for">Every change you've approved, with the exact message you signed.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Looking is free; changes ask again</h2>
+  <p>Being signed in lets you look around. Each change pops up in your wallet again, saying exactly what will happen, and only happens if you sign. So if someone ever got hold of your signed-in browser tab, they still couldn't change anything without your wallet.</p>
+  <p>You're signed out after 30 minutes without activity, 8 hours after signing in, or when you click <em>Sign out</em>. If you ever signed in on a computer that isn't yours, use <em>Sign out everywhere</em> on the Overview.</p>
+
+  <div class="notice warn"><span class="icon">!</span><div class="text">
+    <strong>The first time, you'll see "No policy is approved yet"</strong>
+    <p>That's expected. Your AI's memory stays switched off until you approve the rules. That's the next step.</p>
+  </div></div>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="wallet.html"><small>Back</small>← Your wallet</a>
+  <a class="fwd" href="policy.html"><small>Next</small>Your first policy →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

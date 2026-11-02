@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Claude · AIngram docs</title>
+<meta name="description" content="Connect Claude and Claude Code to your AIngram.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html" class="on">Use it</a>
+    <a href="server.html">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>Connect Claude</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html" class="on" aria-current="page">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow">Using AIngram · Step 4</div>
+  <h1>Connect Claude</h1>
+  <p class="lede">AIngram plugs into Claude as a <em>connector</em>. Claude in your chats becomes the brain. If you also use Claude Code, it gets its own key and writes as Code.</p>
+
+  <h2>Find your connection address</h2>
+  <p>On the admin page's <strong>Overview</strong>, under <em>Connect an agent</em>, copy the MCP endpoint. It's your server's address with <code>/mcp</code> on the end, like <code>https://memory.example.com/mcp</code>.</p>
+
+  <h2>Claude: web, desktop and phone</h2>
+  <ol class="steps">
+    <li><strong>Add a custom connector</strong><p>In Claude, open <em>Settings</em>, then <em>Connectors</em>, and choose to add a custom connector. Name it <em>AIngram</em> and paste the connection address. If you don't see the option, Anthropic's help centre lists which plans include custom connectors.</p></li>
+    <li><strong>Click Connect</strong><p>Claude opens an approval page on <em>your</em> server. It names the connector and the voice it will get: the brain.</p></li>
+    <li><strong>Approve it with your wallet</strong><p>Pick your wallet and sign. Your wallet's message names your server, the connector and the voice. Then you're sent back to Claude, connected.</p></li>
+    <li><strong>Switch it on in a chat</strong><p>In a chat, make sure AIngram is turned on in the connectors or tools menu. Once added, it works in Claude on the web, the desktop app and your phone.</p></li>
+  </ol>
+
+  <div class="notice err"><span class="icon">!</span><div class="text">
+    <strong>Approve only right after you clicked Connect yourself</strong>
+    <p>Anyone can make a connector called "Claude" and send you a link to your approval page. Approving theirs would hand them your memory. The page shows how long ago the request was made; if you didn't just click Connect, click <em>Don't connect</em>.</p>
+  </div></div>
+
+  <p>The connection lasts 7 days and renews itself. It appears under <strong>Keys</strong> on the admin page, where you can switch it off at any time. If a chat seems stuck right after a renewal, start a new chat.</p>
+
+  <h2>Claude Code</h2>
+  <ol class="steps">
+    <li><strong>Create a code key</strong><p>On the <strong>Keys</strong> tab, under <em>New code key</em>, give it a label you'll recognise, like "laptop", and click <em>Create key</em>. Sign in your wallet.</p></li>
+    <li><strong>Copy the command it shows you</strong><p>A window shows the key once, with a ready-made command. Copy the one marked <em>Claude Code, in a terminal</em> and run it. Or, to connect one project only, copy the <code>.mcp.json</code> settings into that project.</p></li>
+    <li><strong>Click I've saved it</strong><p>The key is never shown again, and it isn't stored anywhere you can get it back from. If you lose it, replace it from the Keys list.</p></li>
+  </ol>
+
+  <div class="notice warn"><span class="icon">!</span><div class="text">
+    <strong>Treat a code key like a password</strong>
+    <p>Anyone with it can read your AI's memory and write as Code. Don't paste it into chats or commit it to a public repository. If one leaks, revoke it on the Keys tab; it stops working at once.</p>
+  </div></div>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="policy.html"><small>Back</small>← Your first policy</a>
+  <a class="fwd" href="teach.html"><small>Next</small>Teach your AI →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

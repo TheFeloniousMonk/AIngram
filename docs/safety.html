@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Staying safe · AIngram docs</title>
+<meta name="description" content="What to approve, what never to approve, and what AIngram protects you from.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html">Use it</a>
+    <a href="server.html">Run a server</a>
+    <a href="safety.html" class="on">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>Staying safe</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html" class="on" aria-current="page">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow">Help</div>
+  <h1>Staying safe</h1>
+  <p class="lede">AIngram is built so that a stolen password, a leaked key, or even a broken-into server can't quietly change your AI's memory. A few habits on your side keep it that way.</p>
+
+  <h2>The rules that matter most</h2>
+  <div class="notice err"><span class="icon">!</span><div class="text">
+    <strong>Never share your 12-word recovery phrase</strong>
+    <p>Not with a website, a chat, an AI, a friend helping you set up, or anyone claiming to be from AIngram, Rabby or MetaMask. Nobody legitimate will ever ask.</p>
+  </div></div>
+  <div class="notice warn"><span class="icon">!</span><div class="text">
+    <strong>Only sign messages, never transactions</strong>
+    <p>AIngram never asks for a transaction, a token approval or a fee. If your wallet shows any of those, reject it. <a href="wallet.html#what-signing-looks-like">See what each looks like.</a></p>
+  </div></div>
+  <div class="notice warn"><span class="icon">!</span><div class="text">
+    <strong>Approve a connection only right after you clicked Connect</strong>
+    <p>A link to your approval page can come from anyone. If you didn't just click Connect in Claude yourself, click <em>Don't connect</em>.</p>
+  </div></div>
+
+  <h2>Before you sign anything</h2>
+  <ol>
+    <li><strong>Are you on your own admin page?</strong> Check the address bar. Bookmark your admin page and use the bookmark.</li>
+    <li><strong>Does the message name your server?</strong> Every AIngram message does.</li>
+    <li><strong>Is it what you meant to do?</strong> Change messages start with <code>AIngram admin command</code> and spell out the action. If it's not what you clicked, cancel.</li>
+  </ol>
+  <p>Cancelling is always safe: nothing happens, and the page tells you so.</p>
+
+  <h2>Keys and tokens</h2>
+  <ul>
+    <li><strong>Claude Code keys</strong> are like passwords. Keep them out of chats and public code. Revoke any that may have leaked; they stop working at once.</li>
+    <li><strong>Claude's connection</strong> renews itself every 7 days. Revoke it on the Keys tab if you stop using Claude, or if anything seems off.</li>
+    <li><strong>Backup tokens</strong> can only download. Revoke one if it leaks.</li>
+    <li>Signed in on a computer that isn't yours? Use <em>Sign out everywhere</em> on the Overview.</li>
+  </ul>
+
+  <h2>Text from the web</h2>
+  <p>Web pages can hide instructions aimed at AIs. AIngram can't stop your AI reading those, but it makes them visible: a note written while outside text was in the chat is flagged with where it came from. The admin page shows notes as plain text, never as live web content, so a note can't do anything to your browser.</p>
+
+  <h2>What AIngram protects against, and what it can't</h2>
+  <table class="plain">
+    <thead><tr><th>If someone…</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td data-label="If someone…">steals your signed-in browser tab</td><td data-label="What happens">They can look, but can't change anything: every change needs your wallet.</td></tr>
+      <tr><td data-label="If someone…">gets a Claude Code key</td><td data-label="What happens">They can read memory and write as Code, within its rules. Revoke the key.</td></tr>
+      <tr><td data-label="If someone…">tricks you with a look-alike site</td><td data-label="What happens">Your wallet shows the real site's name in the message. Check it.</td></tr>
+      <tr><td data-label="If someone…">gets full control of the server</td><td data-label="What happens">They could edit the database file directly. Signatures can't prevent that, but your <a href="backups.html">nightly backup</a>, running elsewhere, catches it and warns you.</td></tr>
+      <tr><td data-label="If someone…">gets your recovery phrase</td><td data-label="What happens">They become you. Make a new wallet, and have the server's admin address changed to it.</td></tr>
+    </tbody>
+  </table>
+
+  <p class="muted small">The full security model is in the <a href="https://github.com/TheFeloniousMonk/AIngram#security-model">README</a>.</p>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="backups.html"><small>Back</small>← Nightly backups</a>
+  <a class="fwd" href="troubleshooting.html"><small>Next</small>Troubleshooting →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>

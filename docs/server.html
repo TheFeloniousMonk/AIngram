@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What you need · AIngram docs</title>
+<meta name="description" content="What you need to run your own AIngram server.">
+<link rel="stylesheet" href="assets/docs.css">
+<script src="assets/docs.js" defer></script>
+</head>
+<body>
+<!-- nav:top -->
+<header class="top">
+  <a class="brand" href="index.html"><span class="ai">AI</span>ngram<span class="sub">docs</span></a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="index.html">Start here</a>
+    <a href="wallet.html">Use it</a>
+    <a href="server.html" class="on">Run a server</a>
+    <a href="safety.html">Help</a>
+    <a href="https://github.com/TheFeloniousMonk/AIngram">GitHub</a>
+  </nav>
+</header>
+<!-- /nav:top -->
+<div class="docs">
+<!-- nav:side -->
+<div class="side-wrap">
+  <button class="ghost side-toggle" aria-expanded="false"><span>What you need</span><span>Open ▾</span></button>
+  <nav class="side" aria-label="All pages">
+    <h4>Start here</h4>
+    <a href="index.html">What AIngram is</a>
+    <a href="how-it-works.html">How it works</a>
+    <h4>Using AIngram</h4>
+    <a href="wallet.html">1 · Your wallet</a>
+    <a href="sign-in.html">2 · Sign in</a>
+    <a href="policy.html">3 · Your first policy</a>
+    <a href="connect.html">4 · Connect Claude</a>
+    <a href="teach.html">5 · Teach your AI</a>
+    <a href="import.html">6 · Bring in old memories</a>
+    <a href="everyday.html">Everyday use</a>
+    <h4 class="tech">Running a server</h4>
+    <a href="server.html" class="on" aria-current="page">What you need</a>
+    <a href="install.html">Install</a>
+    <a href="https.html">Your web address and HTTPS</a>
+    <a href="backups.html">Nightly backups</a>
+    <h4>Help</h4>
+    <a href="safety.html">Staying safe</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+  </nav>
+</div>
+<!-- /nav:side -->
+<article>
+  <div class="eyebrow tech">Running a server</div>
+  <h1>What you need</h1>
+  <p class="lede">This part is for whoever sets up the server. It's a single small program and one database file, but it does need a server on the internet and some comfort with a terminal. If someone set it up for you, you can skip this whole section.</p>
+
+  <h2>The checklist</h2>
+  <table class="plain">
+    <thead><tr><th>You need</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td data-label="You need"><strong>A small Linux server</strong></td><td data-label="Why">Claude connects to AIngram over the internet, so it has to live somewhere public. The smallest plan from most hosting companies is plenty. These guides use Ubuntu.</td></tr>
+      <tr><td data-label="You need"><strong>A web address</strong></td><td data-label="Why">A domain or subdomain you control, like <code>memory.example.com</code>, pointed at the server.</td></tr>
+      <tr><td data-label="You need"><strong>HTTPS</strong></td><td data-label="Why">Claude only connects over HTTPS. A free certificate is set up for you in <a href="https.html">the HTTPS step</a>.</td></tr>
+      <tr><td data-label="You need"><strong>Python 3.11 or newer</strong></td><td data-label="Why">AIngram is written in Python. Recent Ubuntu has it already.</td></tr>
+      <tr><td data-label="You need"><strong>The admin's wallet address</strong></td><td data-label="Why">The <code>0x…</code> address of the wallet that will run the admin page. See <a href="wallet.html">Your wallet</a>.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="notice ok"><span class="icon">✓</span><div class="text">
+    <strong>What it costs</strong>
+    <p>AIngram is free and open source. The only costs are the server and the web address, usually a few dollars a month between them. There are no fees for using the wallet.</p>
+  </div></div>
+
+  <h2>Setting it up for someone else?</h2>
+  <p>Ask them for their wallet address (it's safe to share), set up the server with it, and send them their admin page link. They take it from <a href="sign-in.html">Sign in</a>. You never need their recovery phrase, and you should refuse it if offered.</p>
+  <p>Know what the server's administrator can and can't do: with root on the server you could, in principle, edit the database directly. Signatures can't stop that, but the <a href="backups.html">nightly backup</a>, run somewhere you don't control, catches it. That's why it's worth setting up.</p>
+
+  <h2>Let Claude Code walk you through it</h2>
+  <p>If you'd like help, run Claude Code on the server, or on your computer with an SSH connection to it, and start with this:</p>
+  <div class="prompt">
+    <div class="bar"><span class="label">Give this to Claude Code</span><button class="ghost">Copy</button></div>
+    <p class="say">I want to install AIngram (https://github.com/TheFeloniousMonk/AIngram) on this Ubuntu server, following its docs pages "Install" and "Your web address and HTTPS". My web address will be [memory.example.com] and the admin wallet address is [0x…]. Go one step at a time: explain what each command does before running it, and check each step worked before moving on. Don't skip the security settings in the service file. Never ask for any wallet's recovery phrase or private key.</p>
+  </div>
+
+<!-- nav:next -->
+<div class="next">
+  <a href="everyday.html"><small>Back</small>← Everyday use</a>
+  <a class="fwd" href="install.html"><small>Next</small>Install →</a>
+</div>
+<!-- /nav:next -->
+</article>
+</div>
+</body>
+</html>
