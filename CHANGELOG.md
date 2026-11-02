@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org). A change to the
 hashing or schema version (`V` in `aingram_core.py`) is always a major version.
 
-## Unreleased
+## 2.0.0 (2026-11-02)
 
 - The excerpt is a clue and the body is the memory: tool descriptions and
   parameter help say so, and boot, recall and read point agents to the body.
