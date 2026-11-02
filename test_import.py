@@ -33,7 +33,7 @@ def sign(acct, message):
 
 
 def jsonl(*records):
-    return "\n".join(json.dumps(r) for r in records) + "\n"
+    return "\n".join(json.dumps({"body": "the memory", **r}) for r in records) + "\n"
 
 
 GOOD = jsonl(
@@ -89,12 +89,13 @@ class Checking(Import):
             {"subject": "x", "kind": "fact", "excerpt": "e", "source": "a", "date": "2099-01-01"},  # future
             {"subject": "x", "kind": "fact", "excerpt": "e", "source": "a", "voice": "code"},     # unknown field
             {"subject": "x", "kind": "fact", "excerpt": "e", "source": "s" * 501},                # source too long
-        ) + "not json\n"
+        ) + json.dumps({"subject": "x", "kind": "fact", "excerpt": "e", "source": "a"}) + "\n" + "not json\n"
         r = admin.check_import(bad, self.policy)
         self.assertFalse(r["valid"])
-        self.assertEqual(r["problem_count"], 8)
+        self.assertEqual(r["problem_count"], 9)
         for n, needle in enumerate(("source is required", "reserved", "reserved", "excerpt is 301",
-                                    "future", "unknown field", "longer than 500", "not JSON"), 1):
+                                    "future", "unknown field", "longer than 500", "body is required",
+                                    "not JSON"), 1):
             self.assertIn(f"line {n}:", r["problems"][n - 1])
             self.assertIn(needle, r["problems"][n - 1])
 
@@ -150,12 +151,12 @@ class Applying(Import):
         # The brain's own writing for the day is untouched by the import.
         self.assertEqual(self.policy.headroom(self.conn, "brain"), cap)
         core.add_key(self.conn, key_id="k_brain_live", voice="brain")
-        svc.write(self.conn, self.policy, "k_brain_live", subject="misc", kind="fact", excerpt="after the import")
+        svc.write(self.conn, self.policy, "k_brain_live", body="the memory", subject="misc", kind="fact", excerpt="after the import")
         self.assertEqual(self.policy.headroom(self.conn, "brain"), cap - 1)
 
     def test_dates_set_display_and_order_but_not_chain_position(self):
         core.add_key(self.conn, key_id="k_brain_live", voice="brain")
-        today = svc.write(self.conn, self.policy, "k_brain_live", subject="breadcrumbs", kind="breadcrumb",
+        today = svc.write(self.conn, self.policy, "k_brain_live", body="the memory", subject="breadcrumbs", kind="breadcrumb",
                           excerpt="tonight's thread")["id"]
         week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
         self.signed({"action": "import.apply", "body": jsonl(
@@ -178,7 +179,7 @@ class Applying(Import):
 
     def test_overview_latest_is_by_original_date(self):
         core.add_key(self.conn, key_id="k_brain_live", voice="brain")
-        svc.write(self.conn, self.policy, "k_brain_live", subject="misc", kind="fact", excerpt="written today")
+        svc.write(self.conn, self.policy, "k_brain_live", body="the memory", subject="misc", kind="fact", excerpt="written today")
         self.signed({"action": "import.apply", "body": jsonl(
             {"subject": "misc", "kind": "fact", "excerpt": "written in May", "date": "2026-05-07", "source": "a.md"})})
         self.assertEqual(admin.overview(self.conn, self.policy)["latest"]["brain"]["excerpt"], "written today")

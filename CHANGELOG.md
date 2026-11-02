@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org). A change to the
 hashing or schema version (`V` in `aingram_core.py`) is always a major version.
 
+## Unreleased
+
+- The excerpt is a clue and the body is the memory: tool descriptions and
+  parameter help say so, and boot, recall and read point agents to the body.
+- write requires a body. A body that only repeats the excerpt is written with
+  a note suggesting a fuller one. An over-long excerpt is refused with advice
+  to move the detail into the body. Imports require a body too.
+- Boot's tail entries carry body_chars, the length of each body.
+
 ## 1.0.0 (2026-11-02)
 
 The first release.

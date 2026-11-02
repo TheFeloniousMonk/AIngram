@@ -22,6 +22,7 @@ import sqlite3
 import sys
 import threading
 from contextlib import contextmanager
+from typing import Annotated
 from urllib.parse import urlparse
 
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -30,6 +31,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -42,9 +44,16 @@ from aingram_policy import Policy, PolicyError
 
 log = logging.getLogger("aingram")
 
+BODY_HELP = ("Required. The memory, in full. Write it as if the excerpt didn't exist: "
+             "whoever reads this later has only what you put here.")
+EXCERPT_HELP = ("Up to 300 characters. A compressed clue to the body, shown at boot and in recall. "
+                "Name what the body holds (the decision, the fact, where to look) so future-you can "
+                "tell whether to read it. Not a substitute for the body.")
+
 INSTRUCTIONS = """AIngram is a long-term memory: an append-only, hash-chained log.
 Call boot first in a session: it returns the pinned core, the recent tail and a digest of other voices' entries.
-recall finds entries by subject (folded current state) or by full-text query; it returns excerpts only.
+Boot and recall show excerpts: short clues to each entry. The body is the memory itself.
+recall finds entries by subject (folded current state) or by full-text query.
 read returns one full entry by id (a 12-character prefix is enough). The first entry's prev is
 64 zeros, the chain's start; prev is null only when the previous entry is one you may not read.
 write appends an entry. Set untrusted_ctx (for example 'web', or ['meadow', 'web']) when outside text was in your context.
@@ -164,7 +173,10 @@ def build_server(app: AIngram) -> MCPServer:
         writes you have left today, and the chain head, within the policy's token budget.
         The core is always whole. Over budget, the tail drops its oldest entries and
         'shed' says how many; if the core alone is over budget, 'warnings' carries
-        core_over_budget: consolidate pinned entries."""
+        core_over_budget: consolidate pinned entries.
+        Every core and tail entry appears as its excerpt: a clue, not the whole memory.
+        When an excerpt bears on what you're doing, call read with its id. Reading also
+        keeps the entry from fading."""
         return run(ctx, lambda c, p, k, v: svc.boot(c, p, v))
 
     @server.tool(annotations=readonly, structured_output=False)
@@ -174,13 +186,15 @@ def build_server(app: AIngram) -> MCPServer:
         subject: a path like 'people/sister' returns that subject's current state
                  (redacted and superseded entries dropped), newest first; 'projects/**' includes everything below it.
         query: plain words, full-text matched against subject, excerpt, keywords and body.
-        Optional kind filter and limit (default 10). Returns excerpts with ids; use read for a full body."""
+        Optional kind filter and limit (default 10). Returns excerpts with ids. Excerpts are clues;
+        read an id for the full body before relying on it."""
         return run(ctx, lambda c, p, k, v: svc.recall(c, p, v, subject=subject, query=query,
                                                       kind=kind, limit=limit))
 
     @server.tool(annotations=readonly, structured_output=False)
     def read(ctx: Context, id: str) -> str:
-        """Read one full entry by id or unique id prefix (12 characters is plenty):
+        """Read one full entry. The body is the memory; the excerpt was its clue.
+        Give an id or unique id prefix (12 characters is plenty):
         header, excerpt, keywords, body, prev, what it supersedes and what supersedes it.
         Reading counts as deliberate use and slows the entry's fading."""
         return run(ctx, lambda c, p, k, v: svc.read(c, p, v, id))
@@ -188,13 +202,20 @@ def build_server(app: AIngram) -> MCPServer:
     @server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False,
                                              idempotentHint=False, openWorldHint=False),
                  structured_output=False)
-    def write(ctx: Context, subject: str, kind: str, excerpt: str, keywords: list[str] | None = None,
-              body: str = "", supersedes: str | None = None, refs: list[str] | None = None,
-              pinned: bool = False, untrusted_ctx: str | list[str] | None = None) -> str:
-        """Append an entry.
+    def write(ctx: Context, subject: str, kind: str,
+              body: Annotated[str, Field(description=BODY_HELP)],
+              excerpt: Annotated[str, Field(description=EXCERPT_HELP)],
+              keywords: list[str] | None = None, supersedes: str | None = None,
+              refs: list[str] | None = None, pinned: bool = False,
+              untrusted_ctx: str | list[str] | None = None) -> str:
+        """Append a memory. Every entry has two parts. The body is the memory itself, in full.
+        The excerpt is a short clue to it. Boot and recall show only excerpts, so you can see a
+        lot of memory at once without loading it all, then read the body of any entry whose clue
+        looks relevant. Write the body first: what happened, ids, names, locations, quotes, next
+        steps, and why it mattered. Then compress the excerpt from it. A good excerpt tells
+        future-you what the body holds and when to open it. It does not try to replace it.
         subject: path-like retrieval key, e.g. 'aingram/build'. kind: e.g. fact, breadcrumb,
-        correction, decision, shipped, gotcha. excerpt: up to 300 characters, what boot and recall show.
-        keywords: free-form list. body: full text, any length within the policy limit.
+        correction, decision, shipped, gotcha. keywords: free-form list.
         supersedes: id of the entry in the same subject this one corrects or replaces.
         refs: ids this entry cites (citing an entry reinforces it).
         pinned: always in the brain's boot core (brain only).

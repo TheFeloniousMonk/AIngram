@@ -111,7 +111,8 @@ def _tail_item(row) -> dict:
     """A boot tail line. Every tail entry is the booting voice's own, so no voice field,
     and the day is enough to place it."""
     out = {"id": short(row["id"]), "subject": row["subject"], "kind": row["kind"],
-           "date": _dated(row) or row["ts"][:10], "excerpt": row["excerpt"]}
+           "date": _dated(row) or row["ts"][:10], "excerpt": row["excerpt"],
+           "body_chars": len(row["body"] or "")}
     if row["untrusted_ctx"]:
         out["untrusted_ctx"] = row["untrusted_ctx"]
     return out
@@ -289,6 +290,14 @@ def reinforce(conn, policy: Policy, entry_id: str, now: datetime | None = None) 
 
 # ---------------------------------------------------------------- write / redact
 
+BODY_REQUIRED = ("Nothing written: body is required. The body is the memory and the excerpt is only "
+                 "a clue to it. Put the full entry in body, then compress the excerpt from it.")
+BODY_IS_EXCERPT = ("Written. Note: the body matches the excerpt exactly. That's fine for a one-line fact. "
+                   "If there's more to it (ids, where to look, why it mattered), supersede this entry "
+                   "with a fuller body.")
+EXCERPT_TOO_LONG = ("Nothing written: excerpt is {n} characters; max {max}. Move the detail into the body. "
+                    "The excerpt only needs to point at it.")
+
 def write(conn, policy: Policy, key_id: str, *, subject: str, kind: str, excerpt: str,
           keywords=(), body: str = "", supersedes: str | None = None, refs=(),
           pinned: bool = False, untrusted_ctx: str | list[str] | None = None,
@@ -298,6 +307,11 @@ def write(conn, policy: Policy, key_id: str, *, subject: str, kind: str, excerpt
     untrusted_ctx, problem = canonical_ctx(untrusted_ctx)
     if problem:
         raise ServiceError(problem)
+    if not isinstance(body, str) or not body.strip():
+        raise ServiceError(BODY_REQUIRED)
+    n = len(core.nfc(excerpt)) if isinstance(excerpt, str) else 0
+    if n > core.EXCERPT_MAX:
+        raise ServiceError(EXCERPT_TOO_LONG.format(n=n, max=core.EXCERPT_MAX))
     conn.execute("BEGIN IMMEDIATE")
     try:
         voice = core._voice_for(conn, key_id)
@@ -328,7 +342,10 @@ def write(conn, policy: Policy, key_id: str, *, subject: str, kind: str, excerpt
     except BaseException:
         conn.execute("ROLLBACK")
         raise
-    return {"id": short(result["id"]), "seq": result["seq"], "head": head(conn)}
+    out = {"id": short(result["id"]), "seq": result["seq"], "head": head(conn)}
+    if core.nfc(body).strip() == core.nfc(excerpt).strip():
+        out["note"] = BODY_IS_EXCERPT
+    return out
 
 
 def redact(conn, policy: Policy, key_id: str, target: str, reason: str) -> dict:

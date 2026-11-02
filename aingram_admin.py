@@ -598,14 +598,14 @@ def parse_import(text, policy: Policy) -> tuple[list[dict], list[str]]:
         try:
             rec = {
                 "subject": raw.get("subject"), "kind": raw.get("kind"), "excerpt": raw.get("excerpt"),
-                "keywords": list(raw.get("keywords") or []), "body": raw.get("body") or "",
+                "keywords": list(raw.get("keywords") or []), "body": raw.get("body"),
                 "pinned": raw.get("pinned", False), "untrusted_ctx": raw.get("untrusted_ctx"),
                 "date": raw.get("date"), "source": raw.get("source")}
-            for field in ("subject", "kind", "excerpt", "source"):
+            for field in ("subject", "kind", "body", "excerpt", "source"):
                 if not isinstance(rec[field], str) or not rec[field].strip():
                     raise Refused(f"{field} is required")
-            if not isinstance(rec["body"], str) or not all(isinstance(k, str) for k in rec["keywords"]):
-                raise Refused("body must be text and keywords a list of text")
+            if not all(isinstance(k, str) for k in rec["keywords"]):
+                raise Refused("keywords must be a list of text")
             if not isinstance(rec["pinned"], bool):
                 raise Refused("pinned must be true or false")
             source = plain_text(rec["source"], "source", SOURCE_MAX)

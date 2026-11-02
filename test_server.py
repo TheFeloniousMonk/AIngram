@@ -78,6 +78,8 @@ class Harness(unittest.TestCase):
 
     def call(self, secret, tool, **args):
         """Returns (ok, payload): payload is the parsed JSON result, or the error text."""
+        if tool == "write":
+            args.setdefault("body", f"The memory behind {args.get('excerpt')!r}.")
         r = self.rpc(secret, "tools/call", {"name": tool, "arguments": args})
         self.assertEqual(r.status_code, 200, r.text)
         result = r.json()["result"]
@@ -167,7 +169,37 @@ class Voices(Harness):
         self.refused(self.code, "write", "reserved", subject="_redactions", kind="decision", excerpt="e")
 
     def test_excerpt_cap(self):
-        self.refused(self.brain, "write", "max 300", subject="misc", kind="fact", excerpt="x" * 301)
+        self.refused(self.brain, "write", "Nothing written: excerpt is 301 characters; max 300. Move the detail "
+                     "into the body. The excerpt only needs to point at it.",
+                     subject="misc", kind="fact", excerpt="x" * 301)
+
+    def test_body_is_required(self):
+        for body in ("", "   "):
+            for key in (self.brain, self.code):
+                self.refused(key, "write", svc.BODY_REQUIRED, subject="aingram/x", kind="decision",
+                             excerpt="e", body=body)
+        self.assertEqual(self.ok(self.brain, "boot")["recent"], [])
+
+    def test_body_matching_the_excerpt_is_written_with_a_note(self):
+        out = self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="Ada lives in Lisbon",
+                      body="Ada lives in Lisbon")
+        self.assertEqual(out["note"], svc.BODY_IS_EXCERPT)
+        fuller = self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="Ada lives in Lisbon",
+                         body="Ada lives in Lisbon, since March; she moved for work.")
+        self.assertNotIn("note", fuller)
+
+    def test_boot_tail_shows_body_size(self):
+        self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="clue", body="x" * 640)
+        self.assertEqual(self.ok(self.brain, "boot")["recent"][0]["body_chars"], 640)
+
+    def test_tool_help_names_excerpt_a_clue(self):
+        tools = {t["name"]: t for t in self.rpc(self.code, "tools/list").json()["result"]["tools"]}
+        schema = tools["write"]["inputSchema"]
+        self.assertIn("body", schema["required"])
+        self.assertIn("clue", schema["properties"]["excerpt"]["description"])
+        self.assertIn("The memory, in full", schema["properties"]["body"]["description"])
+        for name in ("boot", "recall", "read"):
+            self.assertIn("clue", tools[name]["description"])
 
 
 class Caps(Harness):

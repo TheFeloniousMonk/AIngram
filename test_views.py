@@ -30,6 +30,7 @@ class Views(unittest.TestCase):
         kw.setdefault("subject", "misc")
         kw.setdefault("kind", "fact")
         kw.setdefault("excerpt", "x")
+        kw.setdefault("body", "the memory")
         return svc.write(self.conn, self.policy, key, now=when, **kw)["id"]
 
     def boot(self, voice="brain", when=NOW):

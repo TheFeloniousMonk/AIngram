@@ -123,7 +123,8 @@ class Flow(OAuth):
     def test_connect_and_use_memory_as_the_brain(self):
         _, tokens = self.connect()
         self.assertEqual(tokens["expires_in"], 7 * 24 * 3600)
-        r = self.mcp(tokens["access_token"], "write", subject="self/first", kind="fact", excerpt="hello", pinned=True)
+        r = self.mcp(tokens["access_token"], "write", subject="self/first", kind="fact", excerpt="hello",
+                     body="The first memory.", pinned=True)
         self.assertFalse(r.json()["result"]["isError"], r.text)
         boot = json.loads(self.mcp(tokens["access_token"], "boot").json()["result"]["content"][0]["text"])
         self.assertEqual(boot["voice"], "brain")

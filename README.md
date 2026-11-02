@@ -50,6 +50,7 @@ The server listens on `AINGRAM_HOST:AINGRAM_PORT` (loopback by default) and serv
 
 ## How agents read it
 
+- **Excerpt and body.** Every entry has both. The body is the memory itself and is required; the excerpt is a clue to it, up to 300 characters. Boot and recall show only excerpts (each tail entry also carries `body_chars`), so an agent sees a lot at once and reads the body of whatever looks relevant. A write whose body is just its excerpt goes through with a note suggesting a fuller body.
 - **`boot`** returns the pinned core, the voice's recent tail, a one-line digest of what the other voice wrote since the brain last woke, and how many writes are left today. It aims to fit the policy's `boot.token_budget` (estimated from the response size, since the server runs no model). The core is never dropped or trimmed, and the notices always stay. Over budget, the recent tail gives way, oldest first, and `shed` says how many entries were dropped. If the core alone is over budget, boot still returns all of it, with an empty tail and a `core_over_budget` warning: a sign to consolidate pinned entries.
 - **Decay.** Each entry's salience is 2^(−days since last use ÷ half-life). Below `decay.fade_below` an entry has faded: it leaves the recent tail and sinks in search, but stays in the log and can still be read. Reading an entry by id, or citing it in a new entry's `refs`, resets its clock and stretches its half-life. Pinned entries never fade.
 - **`recall`** by subject returns that subject's current state, newest first. By query, it ranks full-text matches by relevance times salience and marks faded hits.
@@ -77,22 +78,22 @@ The file has one JSON object per line:
 | --- | --- | --- |
 | `subject` | required | Path-like, e.g. `people/ada`, `ways-of-working/reviews` |
 | `kind` | required | e.g. `fact`, `breadcrumb`, `decision`, `correction` |
-| `excerpt` | required | Up to 300 characters: what boot and recall show |
+| `body` | required | The full text. The memory itself; write it first |
+| `excerpt` | required | Up to 300 characters: a compressed clue to the body, shown at boot and in recall |
 | `source` | required | Where it came from, such as `overview.md` or a full path, kept verbatim (up to 500 characters). Each entry gets the keyword `migrated-from:<source>`, so the chain and its exports record its provenance |
 | `keywords` | optional | A list of words |
-| `body` | optional | The full text |
 | `pinned` | optional | `true` puts it in the brain's core, shown at every boot |
 | `untrusted_ctx` | optional | Where outside text came from, if any was involved, e.g. `meadow`, `web` |
 | `date` | optional | `YYYY-MM-DD` it was originally written. It sets the entry's decay clock (an old breadcrumb arrives already faded), how it is shown, and where it sorts in the recent tail and a subject's view. Its place in the chain doesn't change, and the date is also kept as a `dated:` keyword |
 
 ```json
-{"subject": "self/name", "kind": "fact", "excerpt": "I am Qlaude.", "pinned": true, "source": "overview.md"}
-{"subject": "breadcrumbs", "kind": "breadcrumb", "excerpt": "Meadow catch-up: two new agents joined.", "date": "2026-10-28", "untrusted_ctx": "meadow", "source": "breadcrumbs.md"}
+{"subject": "self/name", "kind": "fact", "body": "Qlaude is the name I go by, in chats and in my own notes.", "excerpt": "I am Qlaude.", "pinned": true, "source": "overview.md"}
+{"subject": "breadcrumbs", "kind": "breadcrumb", "body": "Meadow catch-up. Two new agents joined the garden room and introduced themselves; nothing needs a reply yet.", "excerpt": "Meadow catch-up: two new agents joined.", "date": "2026-10-28", "untrusted_ctx": "meadow", "source": "breadcrumbs.md"}
 ```
 
 A prompt that works well, in a Claude chat that can see the files. Claude creates the import as a file you download, so nothing is copied out of the chat and nothing gets cut off:
 
-> Create a downloadable file named aingram-import.jsonl from this project's memory files. Each line is one JSON object with: subject (path-like, such as people/ada), kind (such as fact, breadcrumb, decision or correction), excerpt (300 characters at most), keywords (a list), body (the full text), and source (the file it came from). Where they apply, also add pinned (true only for what belongs in the always-present core), untrusted_ctx ("meadow", "web", or a list of both) and date (YYYY-MM-DD). Split each file by subject, one entry per fact line or section, and bring everything, not a summary. Breadcrumbs become one entry per dated block, of kind breadcrumb, with its date; mark those written after Meadow sessions with untrusted_ctx "meadow". If it is too large for one file, split it into aingram-import-1.jsonl, aingram-import-2.jsonl and so on, never splitting an entry.
+> Create a downloadable file named aingram-import.jsonl from this project's memory files. Each line is one JSON object with: subject (path-like, such as people/ada), kind (such as fact, breadcrumb, decision or correction), body (the full text from the source, everything, not a summary; write this first), excerpt (a compressed clue to the body, 300 characters at most; it's what boot shows), keywords (a list), and source (the file it came from). Where they apply, also add pinned (true only for what belongs in the always-present core), untrusted_ctx ("meadow", "web", or a list of both) and date (YYYY-MM-DD). Split each file by subject, one entry per fact line or section, and bring everything, not a summary. Breadcrumbs become one entry per dated block, of kind breadcrumb, with its date; mark those written after Meadow sessions with untrusted_ctx "meadow". If it is too large for one file, split it into aingram-import-1.jsonl, aingram-import-2.jsonl and so on, never splitting an entry.
 
 Upload each file on the Import tab. If there are several parts, each one is checked, previewed and approved on its own.
 
