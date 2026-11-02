@@ -98,7 +98,6 @@ article h3 { font-size: 1.05rem; margin: 1.75rem 0 .4rem; }
 
 /* cards */
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.25rem 1.4rem; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin: 1.25rem 0; }
 .card h3 { margin: 0 0 .35rem; font-size: 1.05rem; }
 .card p { margin: .3rem 0; color: var(--muted); }
 a.card { display: block; text-decoration: none; color: var(--ink); transition: border-color .15s; }
