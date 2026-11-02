@@ -179,14 +179,14 @@ function setupBanner() {
 async function overview() {
   await refreshMe();
   const m = state.me;
-  const stat = (label, value) => h("div", { class: "card stat" }, h("div", { class: "muted" }, label), h("div", { class: "big" }, value));
+  const stat = (label, value, cls = "") => h("div", { class: "card stat" }, h("div", { class: "muted" }, label), h("div", { class: `big ${cls}` }, value));
   fill($("stats"), 
     stat("Entries by the brain", m.entries.brain || 0),
     stat("Entries by code", m.entries.code || 0),
     stat("Forgotten", m.redacted),
     m.faded !== undefined ? stat("Faded (this week)", `${m.faded} (${m.faded_this_week})`) : null,
     stat("Active keys", m.active_keys),
-    stat("Chain head", m.head.seq ? `#${m.head.seq}  ${m.head.id}` : "empty"),
+    stat("Chain head", m.head.seq ? `#${m.head.seq} · ${m.head.id}` : "empty", "fit"),
     stat("Policy", m.policy ? m.policy.slice(0, 12) : "not approved"),
   );
   await backups();
@@ -245,100 +245,150 @@ $("verify").addEventListener("click", async () => {
   } catch (e) { out.className = "error"; out.textContent = e.message; }
 });
 
-// -- memory
+// -- memory: a search ribbon over an inbox. Excerpts on the left; the selected entry opens on the right.
 
-async function memory() {
-  const { subjects } = await api("/admin/api/subjects");
-  const list = $("subject-list");
-  fill(list, ...subjects.map((s) =>
-    h("li", {}, h("button", { class: "link subject", onclick: () => loadEntries({ subject: s.subject }, s.subject) },
-      s.subject, h("span", { class: "count" }, s.count)))));
-  if (!list.children.length) list.append(h("li", { class: "muted" }, "Nothing written yet."));
-  loadEntries(state.filter, $("entries-title").textContent);
-}
+const mem = { mode: "all", query: "", before: null, selected: null, rows: [], ticket: 0, typing: null };
 
-$("all-entries").addEventListener("click", () => loadEntries({}, "Latest entries"));
-$("faded-entries").addEventListener("click", loadFaded);
+async function memory() { await loadList({ keep: mem.selected }); }
 
 function isFaded(e) {
   return !e.redacted && typeof e.salience === "number" && state.me && state.me.fade_below !== undefined
     && e.salience < state.me.fade_below;
 }
 
-function entryRow(e, extra) {
-  return h("li", {},
-    h("button", { class: "entry" + (e.redacted ? " redacted" : "") + (isFaded(e) ? " faded" : ""), onclick: () => openEntry(e.id) },
-      h("div", { class: "meta" }, h("span", { class: `voice ${e.voice}` }, e.voice), e.kind, " · ", e.subject,
-        e.pinned ? " · pinned" : "", e.untrusted_ctx ? ` · outside text: ${e.untrusted_ctx}` : "",
-        isFaded(e) ? " · faded" : "", h("span", { class: "muted right" }, extra || when(e.ts))),
-      h("div", {}, e.redacted ? "Forgotten" : e.excerpt)));
+// "Nov 2" this year, "Nov 2, 2025" otherwise.
+function day(ts) {
+  if (!ts) return "";
+  const d = new Date(ts.endsWith("Z") ? ts : ts + "Z");
+  const opts = { month: "short", day: "numeric", timeZone: "UTC" };
+  if (d.getUTCFullYear() !== new Date().getUTCFullYear()) opts.year = "numeric";
+  return d.toLocaleDateString(undefined, opts);
 }
 
-// Entries that fell below the fade line, most recent first: what to look at when tuning half-lives.
-async function loadFaded() {
-  state.filter = {};
-  const list = $("entry-list");
-  show($("more"), false);
-  try {
-    const data = await api("/admin/api/faded");
-    $("entries-title").textContent = `Faded: ${data.total} in all, ${data.this_week} this week`;
-    fill(list, data.entries.map((e) => entryRow(e, `faded ${when(e.faded_at)}`)));
-    if (!list.children.length) list.append(h("li", { class: "muted" }, "Nothing has faded."));
-  } catch (e) { fill(list, h("li", { class: "error" }, e.message)); }
+function item(e, when_) {
+  const sel = e.id === mem.selected;
+  const node = h("button", {
+    class: "item" + (e.redacted ? " redacted" : "") + (isFaded(e) ? " faded" : "") + (sel ? " sel" : ""),
+    role: "option", "aria-selected": String(sel), onclick: () => select(e.id) },
+    h("div", { class: "meta" }, h("span", { class: `dot ${e.voice}`, title: e.voice }),
+      h("span", { class: "where", title: e.subject }, `${e.kind} · ${e.subject}`),
+      e.pinned ? h("span", { class: "tag" }, "pinned") : null,
+      e.untrusted_ctx ? h("span", { class: "tag warn" }, e.untrusted_ctx) : null,
+      isFaded(e) && mem.mode !== "faded" ? h("span", { class: "tag" }, "faded") : null,
+      h("span", { class: "when" }, when_ || day(e.ts))),
+    h("div", { class: "ex" }, e.redacted ? "Forgotten" : e.excerpt));
+  node.dataset.id = e.id;
+  return node;
 }
-$("search").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const q = $("query").value.trim();
-  if (q) loadEntries({ query: q }, `Search: ${q}`);
+
+async function loadList({ more = false, keep = null } = {}) {
+  const ticket = ++mem.ticket;  // while typing, only the newest request may draw
+  let rows, next = null, count;
+  try {
+    if (mem.mode === "faded") {
+      const data = await api("/admin/api/faded");
+      const q = mem.query.toLowerCase();
+      rows = data.entries.filter((e) => !q || (e.excerpt || "").toLowerCase().includes(q) || e.subject.toLowerCase().includes(q));
+      count = `${rows.length} faded · ${data.this_week} this week`;
+    } else {
+      const params = new URLSearchParams();
+      if (mem.query) params.set("query", mem.query);
+      if (more && mem.before) params.set("before", mem.before);
+      const data = await api(`/admin/api/entries?${params}`);
+      rows = data.entries;
+      next = data.next_before;
+    }
+  } catch (err) {
+    if (ticket === mem.ticket) fill($("entry-list"), h("div", { class: "empty error" }, err.message));
+    return;
+  }
+  if (ticket !== mem.ticket) return;
+  mem.rows = more ? mem.rows.concat(rows) : rows;
+  mem.before = next;
+  const total = Object.values((state.me && state.me.entries) || {}).reduce((a, b) => a + b, 0);
+  if (mem.mode !== "faded") {
+    const n = `${mem.rows.length}${next !== null ? "+" : ""}`;
+    count = mem.query ? `${n} match${mem.rows.length === 1 && next === null ? "" : "es"}` : `${total} entries`;
+  }
+  $("entry-count").textContent = count;
+  const empty = mem.query ? `Nothing matches “${mem.query}”.` : mem.mode === "faded" ? "Nothing has faded." : "Nothing written yet.";
+  fill($("entry-list"),
+    mem.rows.map((e) => item(e, mem.mode === "faded" ? `faded ${day(e.faded_at)}` : null)),
+    mem.rows.length ? null : h("div", { class: "empty" }, empty),
+    next !== null ? h("button", { class: "ghost more", onclick: () => loadList({ more: true, keep: mem.selected }) }, "Older entries") : null);
+  if (more) return;
+  const pick = mem.rows.find((e) => e.id === keep) || mem.rows[0];
+  if (pick) select(pick.id, { reading: false });
+  else { mem.selected = null; fill($("detail"), h("p", { class: "placeholder" }, mem.rows.length ? "" : empty)); }
+}
+
+$("query").addEventListener("input", () => {
+  clearTimeout(mem.typing);
+  mem.typing = setTimeout(() => { mem.query = $("query").value.trim(); loadList(); }, 180);
 });
-$("more").addEventListener("click", () => loadEntries(state.filter, $("entries-title").textContent, true));
-
-async function loadEntries(filter, title, more) {
-  state.filter = filter;
-  $("entries-title").textContent = title || "Latest entries";
-  const params = new URLSearchParams(filter);
-  if (more && state.before) params.set("before", state.before);
-  const list = $("entry-list");
-  try {
-    const data = await api(`/admin/api/entries?${params}`);
-    const rows = data.entries.map((e) => entryRow(e));
-    if (more) list.append(...rows); else fill(list, ...rows);
-    if (!list.children.length) list.append(h("li", { class: "muted" }, "No entries."));
-    state.before = data.next_before;
-    show($("more"), data.next_before !== null);
-  } catch (e) { fill(list, h("li", { class: "error" }, e.message)); }
+$("query").addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("query").value) { $("query").value = ""; mem.query = ""; loadList(); }
+});
+for (const [id, mode] of [["mode-all", "all"], ["mode-faded", "faded"]]) {
+  $(id).addEventListener("click", () => {
+    mem.mode = mode;
+    for (const b of [$("mode-all"), $("mode-faded")]) {
+      b.classList.toggle("on", b.id === id);
+      b.setAttribute("aria-pressed", String(b.id === id));
+    }
+    loadList();
+  });
 }
 
-async function openEntry(id) {
+// Open an entry on the right and mark it in the list. On a phone the list gives way to it.
+async function select(id, { reading = true } = {}) {
+  mem.selected = id;
+  for (const n of $("entry-list").querySelectorAll(".item")) {
+    const on = n.dataset.id === id;
+    n.classList.toggle("sel", on);
+    n.setAttribute("aria-selected", String(on));
+  }
+  if (reading) {
+    $("inbox").classList.add("reading");
+    if (matchMedia("(max-width: 900px)").matches) $("inbox").scrollIntoView({ block: "start" });
+  }
   const box = $("detail");
-  show(box, true);
-  fill(box, h("p", { class: "muted" }, "Loading…"));
   let e;
   try { e = await api(`/admin/api/entries/${encodeURIComponent(id)}`); }
   catch (err) { fill(box, h("p", { class: "error" }, err.message)); return; }
-  const link = (x) => h("button", { class: "link mono", onclick: () => openEntry(x) }, x);
-  const links = (label, xs) => xs && xs.length ? h("p", {}, h("span", { class: "muted" }, label + ": "), ...xs.flatMap((x) => [link(x), " "])) : null;
-  fill(box, 
-    h("div", { class: "row spread" }, h("h2", {}, e.subject), h("button", { class: "ghost", onclick: () => show(box, false) }, "Close")),
-    h("p", { class: "meta" }, h("span", { class: `voice ${e.voice}` }, e.voice), `${e.kind} · #${e.seq} · ${when(e.ts)} · key ${e.key_id}`),
-    h("p", { class: "mono muted small" }, e.id),
-    typeof e.salience === "number"
-      ? h("p", { class: "muted small" }, e.pinned ? "Pinned: never fades." : `Salience ${e.salience}${isFaded(e) ? " (faded: out of the tail, low in search)" : ""}`)
-      : null,
-    e.untrusted_ctx ? h("p", { class: "warn" }, `Written with outside text in context (${e.untrusted_ctx}).`) : null,
+  if (mem.selected !== id) return;  // a newer selection won
+  const link = (x) => h("button", { class: "link", onclick: () => select(x) }, x);
+  const links = (label, xs) => xs && xs.length ? h("p", { class: "links small" }, h("span", { class: "muted" }, `${label} `), xs.map(link)) : null;
+  fill(box,
+    h("button", { class: "ghost back", onclick: () => $("inbox").classList.remove("reading") }, "← All entries"),
+    h("div", { class: "subject" }, e.subject),
+    h("h2", {}, e.redacted ? "Forgotten" : e.excerpt),
+    h("div", { class: "meta" }, h("span", { class: `dot ${e.voice}` }), `${e.voice} · ${e.kind} · ${when(e.ts)}`,
+      e.pinned ? h("span", { class: "tag" }, "pinned") : null,
+      e.untrusted_ctx ? h("span", { class: "tag warn" }, `outside text: ${e.untrusted_ctx}`) : null,
+      isFaded(e) ? h("span", { class: "tag" }, "faded") : null),
     e.redacted
-      ? h("div", { class: "forgotten" }, h("p", {}, `Forgotten ${when(e.redacted_at)}.`),
+      ? h("div", { class: "forgotten" }, h("p", {}, `Its content was forgotten ${when(e.redacted_at)}.`),
           e.redaction ? h("p", { class: "muted" }, `Reason (only you see this): ${e.redaction.reason}`) : null)
-      : [h("p", { class: "excerpt" }, e.excerpt),
-         e.keywords && e.keywords.length ? h("p", { class: "muted" }, e.keywords.join(", ")) : null,
-         e.body ? h("pre", { class: "body" }, e.body) : null],
+      : e.body ? h("pre", { class: "body" }, e.body) : null,
+    !e.redacted && e.keywords && e.keywords.length ? h("p", { class: "muted small" }, e.keywords.join(" · ")) : null,
     links("Replaces", e.supersedes ? [e.supersedes] : []),
     links("Replaced by", e.superseded_by),
     links("Cites", e.refs),
     links("Cited by", e.cited_by),
-    !e.redacted && e.kind !== "redaction" ? h("button", { class: "danger", onclick: () => forget(e) }, "Forget this entry…") : null,
+    h("div", { class: "facts" },
+      typeof e.salience === "number" ? [h("b", {}, "Salience"), h("span", {}, e.pinned ? "pinned, never fades" : String(e.salience))] : null,
+      h("b", {}, "Sequence"), h("span", {}, `#${e.seq}`),
+      h("b", {}, "Key"), h("span", { class: "mono" }, e.key_id),
+      h("b", {}, "Id"), h("span", { class: "mono" }, e.id)),
+    !e.redacted && e.kind !== "redaction"
+      ? h("div", { class: "actions" }, h("span", { class: "muted small" }, "Forgetting erases the content for good."),
+          h("button", { class: "ghost danger", onclick: () => forget(e) }, "Forget this entry…"))
+      : null,
   );
 }
+
+const openEntry = select;
 
 function forget(e) {
   const reason = h("input", { id: "forget-reason", maxlength: "500", placeholder: "Why? Only you will see this.", autocomplete: "off" });
@@ -357,8 +407,7 @@ function forget(e) {
         flagged.length ? h("p", {}, "These entries replaced or cited it. Check whether they repeat what was forgotten:") : null,
         ...flagged.map((x) => h("button", { class: "link mono", onclick: () => { closeModal(); openEntry(x); } }, x)),
       ], [h("button", { onclick: closeModal }, "Done")]);
-      memory();
-      openEntry(e.id);
+      loadList({ keep: e.id });
     } }, "Confirm in wallet"),
   ]);
   reason.focus();

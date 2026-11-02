@@ -256,6 +256,9 @@ class Views(Ops):
         self.assertIsNone(rest["next_before"])
         self.assertEqual(len(admin.entries(self.conn, subject="projects/**")["entries"]), 3)
         self.assertEqual(len(admin.entries(self.conn, query="lisbon")["entries"]), 2)
+        self.assertEqual(len(admin.entries(self.conn, query="lisb")["entries"]), 2)  # as you type
+        self.assertEqual(len(admin.entries(self.conn, query='"lisb* (')["entries"]), 2)  # never FTS syntax
+        self.assertEqual(admin.entries(self.conn, query="  ")["entries"], [])
 
     def test_browsing_does_not_reinforce(self):
         self.approve()

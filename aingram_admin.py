@@ -168,9 +168,14 @@ def entries(conn, *, subject: str | None = None, query: str | None = None,
         args.append(int(before))
     joined = "LEFT JOIN salience s ON s.entry_id = e.id"
     if query:
+        # Search as you type: every word matches as a prefix ("lisb" finds Lisbon), quoted
+        # so nothing the admin types is parsed as FTS syntax.
+        words = re.findall(r"\w+", query)[:32]
+        if not words:
+            return {"entries": [], "next_before": None}
         sql = (f"SELECT {SALIENCE_COLS} FROM entries_fts JOIN entries e ON e.seq = entries_fts.rowid {joined} "
                f"WHERE entries_fts MATCH ? AND {' AND '.join(where)} ORDER BY e.seq DESC LIMIT ?")
-        args = [svc._fts_query(query), *args]
+        args = [" ".join('"' + w.replace('"', '""') + '"*' for w in words), *args]
     else:
         sql = f"SELECT {SALIENCE_COLS} FROM entries e {joined} WHERE {' AND '.join(where)} ORDER BY e.seq DESC LIMIT ?"
     rows = conn.execute(sql, (*args, limit + 1)).fetchall()

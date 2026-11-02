@@ -11,7 +11,7 @@
 </head>
 <body>
 <header class="top">
-  <div class="brand">AIngram <span class="muted">admin</span></div>
+  <div class="brand"><span class="ai">AI</span>ngram<span class="sub">admin</span></div>
   <div class="who" id="who" hidden>
     <span class="addr" id="who-addr"></span>
     <button class="ghost" id="signout">Sign out</button>
@@ -74,21 +74,17 @@
   </section>
 
   <section class="tab" id="tab-memory" hidden>
-    <div class="memory">
-      <aside class="card subjects">
-        <form id="search" class="row">
-          <input id="query" type="search" placeholder="Search memory" autocomplete="off">
-        </form>
-        <div class="row"><button class="link" id="all-entries">All entries</button>
-          <button class="link" id="faded-entries">Faded</button></div>
-        <ul id="subject-list" class="plain"></ul>
-      </aside>
-      <div class="card entries">
-        <h2 id="entries-title">Latest entries</h2>
-        <ul id="entry-list" class="plain"></ul>
-        <button class="ghost" id="more" hidden>Older</button>
+    <div class="ribbon">
+      <label class="search"><input id="query" type="search" placeholder="Search memory" autocomplete="off" aria-label="Search memory"></label>
+      <div class="seg" role="group" aria-label="Which entries">
+        <button id="mode-all" class="on" aria-pressed="true">All</button>
+        <button id="mode-faded" aria-pressed="false">Faded</button>
       </div>
-      <div class="card detail" id="detail" hidden></div>
+      <span class="count" id="entry-count"></span>
+    </div>
+    <div class="inbox" id="inbox">
+      <div class="list" id="entry-list" role="listbox" aria-label="Entries"></div>
+      <article class="detail" id="detail" aria-live="polite"></article>
     </div>
   </section>
 
