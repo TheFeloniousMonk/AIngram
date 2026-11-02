@@ -21,7 +21,7 @@ import aingram_admin
 import aingram_core as core
 import aingram_server
 import aingram_service as svc
-from aingram_config import Settings
+from aingram_config import VERSION, Settings
 
 HERE = Path(__file__).parent
 ADMIN = Account.create()
@@ -123,6 +123,12 @@ class Auth(Harness):
     def test_healthz_is_open_and_says_nothing(self):
         r = self.client.get("/healthz")
         self.assertEqual(r.json(), {"ok": True})
+
+    def test_reports_version_to_agents_only(self):
+        r = self.rpc(self.code, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                               "clientInfo": {"name": "t", "version": "0"}})
+        self.assertEqual(r.json()["result"]["serverInfo"]["version"], VERSION)
+        self.assertNotIn("version", self.client.get("/healthz").json())
 
     def test_foreign_host_header_refused(self):
         r = self.rpc(self.code, "tools/list", headers={"Host": "evil.example"})

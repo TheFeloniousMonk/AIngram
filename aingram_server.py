@@ -37,7 +37,7 @@ import aingram_core as core
 import aingram_oauth
 import aingram_service as svc
 import aingram_web
-from aingram_config import ConfigError, Settings, load_env
+from aingram_config import VERSION, ConfigError, Settings, load_env
 from aingram_policy import Policy, PolicyError
 
 log = logging.getLogger("aingram")
@@ -132,6 +132,7 @@ def build_server(app: AIngram) -> MCPServer:
     oauth = aingram_oauth.AIngramOAuth(app)
     server = MCPServer(
         name="aingram",
+        version=VERSION,
         instructions=INSTRUCTIONS,
         auth_server_provider=oauth,
         auth=AuthSettings(

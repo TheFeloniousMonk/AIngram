@@ -1,0 +1,44 @@
+# Cuts a GitHub release when a version tag is pushed: git tag v1.2.3 && git push origin v1.2.3
+# The tag must match VERSION in aingram_config.py, CHANGELOG.md must have a
+# "## 1.2.3" section, and the tests must pass. The release notes are that section.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Tag matches VERSION
+        run: |
+          version=$(python -c "import aingram_config; print(aingram_config.VERSION)")
+          test "${GITHUB_REF_NAME}" = "v${version}" || { echo "tag ${GITHUB_REF_NAME} is not v${version}"; exit 1; }
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v v="$VERSION" '/^## /{on = index($0, "## " v " ") == 1 || $0 == "## " v; next} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no ## ${VERSION} section"; exit 1; }
+
+      - name: Tests
+        run: |
+          python -m unittest test_core test_admin_auth test_policy test_admin test_admin_web test_server test_views test_oauth test_backup test_import test_docs
+          python make_vectors.py --check
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "AIngram $VERSION" --notes-file notes.md --verify-tag

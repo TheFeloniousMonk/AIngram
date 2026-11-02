@@ -147,6 +147,21 @@ python -m unittest test_core test_admin_auth test_policy test_admin test_admin_w
 python make_vectors.py --check
 ```
 
+## Releases
+
+Each release is a git tag `v<version>`, listed on GitHub's Releases page with
+its notes from [CHANGELOG.md](CHANGELOG.md). To cut one, set `VERSION` in
+`aingram_config.py`, add a `## <version>` section to the changelog, commit,
+then push the tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The release workflow checks the tag matches `VERSION`, runs the tests, and
+publishes the release. The server reports its version to connected agents.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
