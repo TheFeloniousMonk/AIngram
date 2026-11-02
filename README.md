@@ -47,7 +47,7 @@ The server listens on `AINGRAM_HOST:AINGRAM_PORT` (loopback by default) and serv
 
 ## How agents read it
 
-- **`boot`** returns the pinned core, the voice's recent tail, a one-line digest of what the other voice wrote since the brain last woke, and how many writes are left today. It stays within the policy's `boot.token_budget` (estimated from the response size, since the server runs no model): over budget, it drops the oldest tail entries first, then the excerpts of the newest core entries, and says what it trimmed.
+- **`boot`** returns the pinned core, the voice's recent tail, a one-line digest of what the other voice wrote since the brain last woke, and how many writes are left today. It aims to fit the policy's `boot.token_budget` (estimated from the response size, since the server runs no model). The core is never dropped or trimmed, and the notices always stay. Over budget, the recent tail gives way, oldest first, and `shed` says how many entries were dropped. If the core alone is over budget, boot still returns all of it, with an empty tail and a `core_over_budget` warning: a sign to consolidate pinned entries.
 - **Decay.** Each entry's salience is 2^(−days since last use ÷ half-life). Below `decay.fade_below` an entry has faded: it leaves the recent tail and sinks in search, but stays in the log and can still be read. Reading an entry by id, or citing it in a new entry's `refs`, resets its clock and stretches its half-life. Pinned entries never fade.
 - **`recall`** by subject returns that subject's current state, newest first. By query, it ranks full-text matches by relevance times salience and marks faded hits.
 

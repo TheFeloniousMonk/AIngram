@@ -160,7 +160,10 @@ def build_server(app: AIngram) -> MCPServer:
     def boot(ctx: Context) -> str:
         """Start of session. Returns the pinned core, the recent tail of your own entries,
         a one-line digest of what the other voice logged since you last woke, how many
-        writes you have left today, and the chain head. About 1.5k tokens."""
+        writes you have left today, and the chain head, within the policy's token budget.
+        The core is always whole. Over budget, the tail drops its oldest entries and
+        'shed' says how many; if the core alone is over budget, 'warnings' carries
+        core_over_budget: consolidate pinned entries."""
         return run(ctx, lambda c, p, k, v: svc.boot(c, p, v))
 
     @server.tool(annotations=readonly, structured_output=False)

@@ -101,44 +101,54 @@ class Budget(Views):
             self.write("k_code", subject=f"aingram/n{i % 3}" if i % 2 else f"project-a/n{i % 4}",
                        kind="decision", excerpt=text(200), when=NOW - (code - i) * DAY / 4)
 
-    def test_boot_fits_the_budget_on_a_seeded_log(self):
-        # Untrimmed this boot is about 1.7k estimated tokens (core ~890, tail ~750),
-        # which the example policy's 2k budget holds whole.
+    def test_core_and_full_tail_under_budget_carry_no_shed_or_warning(self):
+        # About 1.7k estimated tokens (core ~890, tail ~750), inside the example policy's 2k.
         self.seed()
         out = self.boot()
         self.assertLessEqual(svc.estimate_tokens(out), self.policy.boot["token_budget"])
-        self.assertNotIn("trimmed", out)
+        self.assertNotIn("shed", out)
+        self.assertNotIn("warnings", out)
         self.assertEqual(len(out["core"]), 15)
         self.assertEqual(len(out["recent"]), self.policy.boot["recent_tail"])
         self.assertIn("Code logged 100 entries", out["code_digest"])
 
-    def test_a_tighter_budget_sheds_the_oldest_tail_first(self):
+    def test_tail_sheds_oldest_first_and_newest_survive(self):
         self.seed()
+        full = [t["id"] for t in svc.boot(self.conn, self.policy, "brain", now=NOW)["recent"]]
+        self.conn.execute("UPDATE voice_state SET last_boot_seq = 0")  # same digest as the first boot
         object.__setattr__(self.policy, "boot", {**self.policy.boot, "token_budget": 1500})
         out = self.boot()
+        kept = [t["id"] for t in out["recent"]]
         self.assertLessEqual(svc.estimate_tokens(out), 1500)
-        self.assertGreater(out["trimmed"]["recent"], 0)
-        self.assertNotIn("core_excerpts", out["trimmed"])
+        self.assertEqual(kept, full[:len(kept)])  # a prefix of newest-first: the oldest went
+        self.assertEqual(out["shed"], {"tail_dropped": len(full) - len(kept)})  # counts what was dropped
+        self.assertGreater(out["shed"]["tail_dropped"], 0)
         self.assertTrue(all(c["excerpt"] for c in out["core"]))
+        self.assertNotIn("warnings", out)
 
-    def test_an_oversized_core_is_trimmed_to_fit(self):
+    def test_core_over_budget_comes_back_whole_with_a_warning(self):
         self.seed(pinned=40, core_chars=300, breadcrumbs=20, code=0)
         out = self.boot()
-        self.assertLessEqual(svc.estimate_tokens(out), self.policy.boot["token_budget"])
-        trimmed = out["trimmed"]
-        self.assertEqual(trimmed["recent"], self.policy.boot["recent_tail"])  # the tail goes first
-        self.assertGreater(trimmed["core_excerpts"], 0)
-        self.assertEqual(len(out["core"]), 40)  # every core entry stays, by id and subject
-        self.assertIsNotNone(out["core"][0]["excerpt"])  # the oldest keep their excerpts
-        self.assertIsNone(out["core"][-1]["excerpt"])
+        self.assertEqual(len(out["core"]), 40)
+        written = ("word " * (300 // 5 + 1))[:300].strip()  # what seed() wrote for each core entry
+        self.assertTrue(all(c["excerpt"] == written for c in out["core"]))  # never truncated
+        self.assertEqual(out["recent"], [])
+        self.assertEqual(out["shed"], {"tail_dropped": self.policy.boot["recent_tail"]})
+        self.assertIn("code_digest", out)  # notices always stay
+        (warning,) = out["warnings"]
+        self.assertEqual(warning["code"], "core_over_budget")
+        self.assertEqual(warning["core_entries"], 40)
+        self.assertEqual(warning["budget"], self.policy.boot["token_budget"])
+        self.assertGreater(warning["core_tokens"], warning["budget"])
+        self.assertGreater(svc.estimate_tokens(out), warning["budget"])  # allowed to exceed, by design
 
-    def test_tail_is_trimmed_before_core(self):
+    def test_shed_count_matches_what_was_dropped(self):
         out = {"core": [{"id": "c", "subject": "s", "excerpt": "e" * 300}],
                "recent": [{"id": str(i), "excerpt": "r" * 300} for i in range(8)]}
         svc.fit_budget(out, 300)
         self.assertEqual(out["core"][0]["excerpt"], "e" * 300)
-        self.assertLess(len(out["recent"]), 8)
-        self.assertEqual(out["recent"][0]["id"], "0")  # the newest stay
+        self.assertEqual(out["shed"]["tail_dropped"], 8 - len(out["recent"]))
+        self.assertEqual([t["id"] for t in out["recent"]], [str(i) for i in range(len(out["recent"]))])
 
 
 if __name__ == "__main__":

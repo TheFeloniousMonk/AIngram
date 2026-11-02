@@ -486,26 +486,28 @@ def estimate_tokens(obj) -> int:
 
 
 def fit_budget(out: dict, budget: int) -> dict:
-    """Shed what boot can best spare until it fits: the oldest tail entries first,
-    then the excerpts of the newest core entries (their ids and subjects stay, so
-    each can still be read). What was shed is counted in `trimmed`."""
-    trimmed = {"recent": 0, "core_excerpts": 0}
+    """The core is the self: boot never drops or trims any part of it. Notices (the
+    redaction notice, the Code digest) always stay too. Only the recent tail gives way,
+    oldest first, and it may go to zero; `shed` counts what was dropped.
+
+    If the core and notices alone are over budget, boot returns them whole anyway, with an
+    empty tail and a core_over_budget warning: a signal to consolidate pinned entries,
+    not something to shed at wake-up. The response may exceed the budget then, by design."""
+    dropped = 0
 
     def over() -> bool:
-        if any(trimmed.values()):
-            out["trimmed"] = {**{k: v for k, v in trimmed.items() if v},
-                              "note": "over the boot budget; read by id or recall for the rest"}
+        if dropped:
+            out["shed"] = {"tail_dropped": dropped}
         return estimate_tokens(out) > budget
 
     while over() and out.get("recent"):
         out["recent"].pop()  # newest first, so this drops the oldest
-        trimmed["recent"] += 1
-    for item in reversed(out.get("core", [])):
-        if not over():
-            break
-        if item.get("excerpt") is not None:
-            item["excerpt"] = None
-            trimmed["core_excerpts"] += 1
+        dropped += 1
+    if over():
+        core = out.get("core", [])
+        out["warnings"] = [{
+            "code": "core_over_budget", "core_tokens": estimate_tokens(core), "budget": budget,
+            "core_entries": len(core), "message": "Core exceeds boot budget; consolidate pinned entries."}]
     return out
 
 
