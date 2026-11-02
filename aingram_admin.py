@@ -28,7 +28,7 @@ import admin_auth
 import aingram_core as core
 import aingram_service as svc
 from aingram_config import ConfigError, Settings, load_env
-from aingram_policy import Policy, PolicyError
+from aingram_policy import Policy, PolicyError, canonical_ctx
 
 LIST_MAX = 100
 SUBJECTS_MAX = 1000
@@ -604,6 +604,9 @@ def parse_import(text, policy: Policy) -> tuple[list[dict], list[str]]:
             if not isinstance(rec["pinned"], bool):
                 raise Refused("pinned must be true or false")
             source = plain_text(rec["source"], "source", SOURCE_MAX)
+            rec["untrusted_ctx"], problem = canonical_ctx(rec["untrusted_ctx"])
+            if problem:
+                raise Refused(problem)
             if rec["date"] is not None:
                 if not isinstance(rec["date"], str) or not DATE_RE.match(rec["date"]):
                     raise Refused("date must be YYYY-MM-DD")

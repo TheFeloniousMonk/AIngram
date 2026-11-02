@@ -247,6 +247,21 @@ class Views(Harness):
         self.assertEqual(sal["reinforcements"], 1)
         self.assertEqual(sal["half_life_days"], 180 * 1.5)
 
+    def test_the_first_entrys_prev_is_genesis_not_a_gap(self):
+        first = self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="first")
+        second = self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="second")
+        self.assertEqual(self.ok(self.brain, "read", id=first["id"])["prev"], "0" * 64)
+        self.assertEqual(self.ok(self.brain, "read", id=second["id"])["prev"], first["id"])
+
+    def test_several_outside_text_sources(self):
+        e = self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="catch-up", untrusted_ctx=["web", "meadow"])
+        self.assertEqual(self.ok(self.brain, "read", id=e["id"])["untrusted_ctx"], "meadow,web")
+        same = self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="again", untrusted_ctx="meadow")
+        self.assertEqual(self.ok(self.brain, "read", id=same["id"])["untrusted_ctx"], "meadow")
+        self.refused(self.brain, "write", "up to 4", subject="misc", kind="fact", excerpt="x",
+                     untrusted_ctx=["a", "b", "c", "d", "e"])
+        self.refused(self.brain, "write", "up to 4", subject="misc", kind="fact", excerpt="x", untrusted_ctx=["Web Page"])
+
     def test_refs_reinforce_and_link(self):
         a = self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="a")
         b = self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="b", refs=[a["id"]])

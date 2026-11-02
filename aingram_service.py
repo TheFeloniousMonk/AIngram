@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 import admin_auth
 import aingram_core as core
-from aingram_policy import Policy, PolicyError, parse_policy
+from aingram_policy import Policy, PolicyError, canonical_ctx, parse_policy
 
 SHORT_ID = 12
 ID_PREFIX_MIN = 8
@@ -279,10 +279,13 @@ def reinforce(conn, policy: Policy, entry_id: str, now: datetime | None = None) 
 
 def write(conn, policy: Policy, key_id: str, *, subject: str, kind: str, excerpt: str,
           keywords=(), body: str = "", supersedes: str | None = None, refs=(),
-          pinned: bool = False, untrusted_ctx: str | None = None,
+          pinned: bool = False, untrusted_ctx: str | list[str] | None = None,
           now: datetime | None = None) -> dict:
     now = _now(now)
     keywords, refs = list(keywords or []), list(refs or [])
+    untrusted_ctx, problem = canonical_ctx(untrusted_ctx)
+    if problem:
+        raise ServiceError(problem)
     conn.execute("BEGIN IMMEDIATE")
     try:
         voice = core._voice_for(conn, key_id)
@@ -344,6 +347,8 @@ def read(conn, policy: Policy, voice: str, ref: str, now: datetime | None = None
     entry_id = row["id"]
 
     def link(target):  # shown only where it points at something this voice may read
+        if target == core.GENESIS:
+            return core.GENESIS  # the first entry's prev: the chain starts here, nothing is hidden
         return (_readable_ids(conn, policy, voice, [target]) or [None])[0] if target else None
 
     superseded_by = _readable_ids(conn, policy, voice, [r[0] for r in conn.execute(

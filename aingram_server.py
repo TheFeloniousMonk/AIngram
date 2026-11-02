@@ -45,8 +45,10 @@ log = logging.getLogger("aingram")
 INSTRUCTIONS = """AIngram is a long-term memory: an append-only, hash-chained log.
 Call boot first in a session: it returns the pinned core, the recent tail and a digest of other voices' entries.
 recall finds entries by subject (folded current state) or by full-text query; it returns excerpts only.
-read returns one full entry by id (a 12-character prefix is enough).
-write appends an entry. Set untrusted_ctx (for example 'web') when outside text was in your context.
+read returns one full entry by id (a 12-character prefix is enough). The first entry's prev is
+64 zeros, the chain's start; prev is null only when the previous entry is one you may not read.
+write appends an entry. Set untrusted_ctx (for example 'web', or ['meadow', 'web']) when outside text was in your context.
+Timestamps are UTC, so an entry written late in the evening can carry the next day's date.
 redact forgets an entry's content, leaving a tombstone.
 Every response includes the chain head: seq, a short id for display, and id_full, the exact
 entry hash. If seq or id_full changed since you last looked, someone wrote in between."""
@@ -184,7 +186,7 @@ def build_server(app: AIngram) -> MCPServer:
                  structured_output=False)
     def write(ctx: Context, subject: str, kind: str, excerpt: str, keywords: list[str] | None = None,
               body: str = "", supersedes: str | None = None, refs: list[str] | None = None,
-              pinned: bool = False, untrusted_ctx: str | None = None) -> str:
+              pinned: bool = False, untrusted_ctx: str | list[str] | None = None) -> str:
         """Append an entry.
         subject: path-like retrieval key, e.g. 'aingram/build'. kind: e.g. fact, breadcrumb,
         correction, decision, shipped, gotcha. excerpt: up to 300 characters, what boot and recall show.
@@ -192,7 +194,8 @@ def build_server(app: AIngram) -> MCPServer:
         supersedes: id of the entry in the same subject this one corrects or replaces.
         refs: ids this entry cites (citing an entry reinforces it).
         pinned: always in the brain's boot core (brain only).
-        untrusted_ctx: where outside text in your context came from ('web', 'email', ...), else omit.
+        untrusted_ctx: where outside text in your context came from: one label ('web') or a list of
+          up to 4 (['meadow', 'web']); stored sorted, as 'meadow,web'. Omit if there was none.
         Returns the new id, seq and chain head."""
         return run(ctx, lambda c, p, k, v: svc.write(
             c, p, k, subject=subject, kind=kind, excerpt=excerpt, keywords=keywords or [],

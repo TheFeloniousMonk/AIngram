@@ -139,7 +139,20 @@ class InputShape(Fixture):
 
     def test_untrusted_ctx_shape(self):
         self.ok(self.p.check_write("brain", "misc", "fact", untrusted_ctx="web"))
+        self.ok(self.p.check_write("brain", "misc", "fact", untrusted_ctx="meadow,web"))
         self.assertFalse(self.p.check_write("brain", "misc", "fact", untrusted_ctx="Web Page"))
+        self.assertFalse(self.p.check_write("brain", "misc", "fact", untrusted_ctx="web,meadow"))  # not canonical
+
+    def test_several_sources_are_canonical(self):
+        for value in (["web", "meadow"], ["meadow", "web", "web"], "web, meadow", ("meadow", "web")):
+            self.assertEqual(pol.canonical_ctx(value), ("meadow,web", None), value)
+        self.assertEqual(pol.canonical_ctx("web"), ("web", None))
+        for empty in (None, "", [], " , "):
+            self.assertEqual(pol.canonical_ctx(empty), (None, None), empty)
+        for bad in (["a", "b", "c", "d", "e"], ["Web"], [3], "a b", {"web": 1}):
+            canonical, problem = pol.canonical_ctx(bad)
+            self.assertIsNone(canonical, bad)
+            self.assertTrue(problem, bad)
 
     def test_content_limits(self):
         self.ok(self.p.check_content("e", ["a"], "body"))

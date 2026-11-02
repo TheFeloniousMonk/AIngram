@@ -295,7 +295,7 @@ function item(e, when_) {
     h("div", { class: "meta" }, h("span", { class: `dot ${e.voice}`, title: e.voice }),
       h("span", { class: "where", title: e.subject }, `${e.kind} · ${e.subject}`),
       e.pinned ? h("span", { class: "tag" }, "pinned") : null,
-      e.untrusted_ctx ? h("span", { class: "tag warn" }, e.untrusted_ctx) : null,
+      e.untrusted_ctx ? h("span", { class: "tag warn" }, e.untrusted_ctx.split(",").join(", ")) : null,
       isFaded(e) && mem.mode !== "faded" ? h("span", { class: "tag" }, "faded") : null,
       h("span", { class: "when" }, when_ || day(e.ts))),
     h("div", { class: "ex" }, e.redacted ? "Forgotten" : e.excerpt));
@@ -388,7 +388,7 @@ async function select(id, { reading = true } = {}) {
     h("h2", {}, e.redacted ? "Forgotten" : e.excerpt),
     h("div", { class: "meta" }, h("span", { class: `dot ${e.voice}` }), `${e.voice} · ${e.kind} · ${when(e.ts)}`,
       e.pinned ? h("span", { class: "tag" }, "pinned") : null,
-      e.untrusted_ctx ? h("span", { class: "tag warn" }, `outside text: ${e.untrusted_ctx}`) : null,
+      e.untrusted_ctx ? h("span", { class: "tag warn" }, `outside text: ${e.untrusted_ctx.split(",").join(", ")}`) : null,
       isFaded(e) ? h("span", { class: "tag" }, "faded") : null),
     e.redacted
       ? h("div", { class: "forgotten" }, h("p", {}, `Its content was forgotten ${when(e.redacted_at)}.`),

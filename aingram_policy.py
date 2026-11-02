@@ -24,6 +24,29 @@ VOICES = ("brain", "code", "admin")
 REDACT_MODES = ("own", "none", "any")
 KIND_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 CTX_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,31}$")
+CTX_MAX = 4
+
+
+def canonical_ctx(value) -> tuple[str | None, str | None]:
+    """Where outside text came from: one label ('web') or several (['web', 'meadow'], or
+    'meadow,web'). Returns (canonical, problem). Several labels are sorted, de-duplicated
+    and comma-joined, like keywords, so the same sources always hash the same; the stored
+    value stays a single string, as the hashing contract requires."""
+    if value is None:
+        return None, None
+    if isinstance(value, str):
+        labels = value.split(",")
+    elif isinstance(value, (list, tuple)) and all(isinstance(v, str) for v in value):
+        labels = list(value)
+    else:
+        return None, "untrusted_ctx must be a label or a list of labels"
+    labels = sorted({label.strip() for label in labels if label.strip()})
+    if not labels:
+        return None, None
+    if len(labels) > CTX_MAX or not all(CTX_RE.match(label) for label in labels):
+        return None, (f"untrusted_ctx must be up to {CTX_MAX} short lowercase labels such as 'web' "
+                      "or 'meadow', or omitted")
+    return ",".join(labels), None
 SUBJECT_MAX = 200
 MAX_COMMAND_TTL = 3600
 
@@ -151,8 +174,10 @@ class Policy:
         if not isinstance(kind, str) or not KIND_RE.match(kind):
             return refuse("kind must be 1-32 characters: lowercase letters, digits, '-' or '_', "
                           "starting with a letter")
-        if untrusted_ctx is not None and not CTX_RE.match(untrusted_ctx):
-            return refuse("untrusted_ctx must be a short lowercase label such as 'web', or null")
+        if untrusted_ctx is not None:
+            canonical, problem = canonical_ctx(untrusted_ctx)
+            if problem or canonical != untrusted_ctx:
+                return refuse(problem or "untrusted_ctx must be in canonical form (labels sorted, comma-joined)")
         if kind in self.reserved_kinds:
             return refuse(f"kind {kind!r} is reserved for the server")
         if matches_any(self.reserved_subjects, subject):

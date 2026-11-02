@@ -27,7 +27,7 @@ id = sha256_hex(canonical({
 }))
 ```
 
-`prev_hash` is the previous entry's `id`; the first entry's is 64 zeros. `ts` is set by the server as `YYYY-MM-DDTHH:MM:SS.ffffffZ` (UTC, microseconds). `voice` comes from the key, never from the request. `refs` is sorted and de-duplicated. `pinned` is a boolean in the hash, stored as 0/1. `supersedes` and `untrusted_ctx` are `null` when absent.
+`prev_hash` is the previous entry's `id`; the first entry's is 64 zeros. `ts` is set by the server as `YYYY-MM-DDTHH:MM:SS.ffffffZ` (UTC, microseconds). `voice` comes from the key, never from the request. `refs` is sorted and de-duplicated. `pinned` is a boolean in the hash, stored as 0/1. `supersedes` and `untrusted_ctx` are `null` when absent. `untrusted_ctx` is always a single string: one label (`web`), or several sorted, de-duplicated and joined with commas (`meadow,web`), so the same sources always hash the same.
 
 ## Redaction
 
