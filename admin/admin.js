@@ -9,7 +9,7 @@ const state = { me: null, before: null, filter: {}, policyBody: "" };
 // ------------------------------------------------------------------ helpers
 
 const W = window.AIngramWallet;
-const { h, fill, show, short } = W;
+const { h, fill, show, short, say, toast, notice } = W;
 function when(ts) { return ts ? ts.replace("T", " ").slice(0, 16) + " UTC" : "never"; }
 
 async function api(path, body) {
@@ -29,9 +29,12 @@ async function copy(text, button) {
   try {
     await navigator.clipboard.writeText(text);
     const old = button.textContent;
-    button.textContent = "Copied";
-    setTimeout(() => { button.textContent = old; }, 1500);
-  } catch (_) { button.textContent = "Select and copy"; }
+    button.textContent = "✓ Copied";
+    button.classList.add("copied");
+    setTimeout(() => { button.textContent = old; button.classList.remove("copied"); }, 2000);
+  } catch (_) {
+    toast("err", "Couldn't copy", "Your browser blocked the clipboard. Select the text and copy it by hand.");
+  }
 }
 
 // ------------------------------------------------------------------ wallets
@@ -54,17 +57,18 @@ function renderWallets() {
 }
 
 async function signIn(w) {
-  const err = $("signin-error");
-  show(err, false);
+  const box = $("signin-error");
+  say(box, null);
   try {
     const account = await W.connect(w);
     const { message } = await api("/admin/api/login/challenge", { address: account });
     const signature = await W.sign(message);
     await api("/admin/api/login/verify", { message, signature });
     await start();
+    toast("ok", "Signed in", "You can look around. Changes still ask your wallet.");
   } catch (e) {
-    err.textContent = W.walletError(e);
-    show(err, true);
+    fill(box, W.walletNotice(e));
+    show(box, true);
   }
 }
 
@@ -80,11 +84,17 @@ function signedOut() {
 $("signout").addEventListener("click", async () => {
   try { await api("/admin/api/logout", {}); } catch (_) { /* already out */ }
   signedOut();
+  toast("ok", "Signed out");
 });
 
 $("signout-all").addEventListener("click", async () => {
-  try { await api("/admin/api/logout", { everywhere: true }); } catch (_) { /* already out */ }
-  signedOut();
+  try {
+    await api("/admin/api/logout", { everywhere: true });
+    signedOut();
+    toast("ok", "Signed out everywhere", "Every admin session on every device has ended.");
+  } catch (e) {
+    toast("err", "Couldn't sign out everywhere", e.message);
+  }
 });
 
 // ------------------------------------------------------------------ signed changes
@@ -99,7 +109,8 @@ function closeModal() { show($("modal"), false); }
 
 // Ask the server to prepare the command, let the wallet sign that exact text, confirm it.
 // `expect`, if given, must accept the prepared action before anything is signed.
-async function signed(request, title, expect) {
+// `done`, if given, is the success toast: [title, detail?] or a function of the result.
+async function signed(request, title, expect, done) {
   let message;
   try {
     await ensureAdminWallet();
@@ -107,7 +118,7 @@ async function signed(request, title, expect) {
     ({ message, action } = await api("/admin/api/actions/prepare", request));
     if (expect && !expect(action)) throw new Error("The server prepared something other than what you checked. Nothing was signed.");
   } catch (e) {
-    modal(title, h("p", { class: "error" }, W.walletError(e)), [h("button", { onclick: closeModal }, "Close")]);
+    modal(title, W.walletNotice(e), [h("button", { onclick: closeModal }, "Close")]);
     return null;
   }
   modal(title, [
@@ -121,9 +132,11 @@ async function signed(request, title, expect) {
     $("sign-status").textContent = "Checking the signature…";
     const result = await api("/admin/api/actions/confirm", { message, signature });
     closeModal();
+    const t = typeof done === "function" ? done(result) : done;
+    if (t) toast("ok", ...[].concat(t));
     return result;
   } catch (e) {
-    modal(title, h("p", { class: "error" }, W.walletError(e)), [h("button", { onclick: closeModal }, "Close")]);
+    modal(title, W.walletNotice(e), [h("button", { onclick: closeModal }, "Close")]);
     return null;
   }
 }
@@ -148,7 +161,7 @@ function tab(name) {
   for (const b of $("tabs").querySelectorAll("button")) b.classList.toggle("on", b.dataset.tab === name);
   for (const s of document.querySelectorAll(".tab")) show(s, s.id === `tab-${name}`);
   Promise.resolve(({ overview, memory, keys, policy, "import": importTab, activity })[name]()).catch((e) => {
-    if (state.me) modal("Something went wrong", h("p", { class: "error" }, e.message), [h("button", { onclick: closeModal }, "Close")]);
+    if (state.me) toast("err", "Something went wrong", e.message);
   });
 }
 $("tabs").addEventListener("click", (e) => { if (e.target.dataset.tab) tab(e.target.dataset.tab); });
@@ -222,7 +235,8 @@ async function backups() {
     h("span", {}, h("span", { class: "mono" }, t.token_id), ` ${t.label || ""} · `,
       t.revoked_at ? `revoked ${when(t.revoked_at)}` : `last backup ${when(t.last_used_at)}`),
     t.revoked_at ? null : h("button", { class: "ghost danger", onclick: async () => {
-      if (await signed({ action: "backup.revoke", token_id: t.token_id }, `Revoke backup token ${t.token_id}`)) backups();
+      if (await signed({ action: "backup.revoke", token_id: t.token_id }, `Revoke backup token ${t.token_id}`, null,
+        ["Backup token revoked", `${t.token_id} can no longer download the export.`])) backups();
     } }, "Revoke"))));
   if (!tokens.length) $("backup-list").append(h("li", { class: "muted" }, "No backup is set up yet."));
 }
@@ -244,7 +258,8 @@ function showBackupSetup(r, info) {
   };
   const cmd = `python aingram_backup.py install --url ${info.public_url} --token ${r.secret} --admin ${info.admin_address}`;
   modal(`Backup token ${r.token_id} is ready`, [
-    h("p", { class: "warn" }, "This is the only time the token is shown. Use it for one of the two setups below."),
+    notice("ok", "Created", `Backup token ${r.token_id} can now download the export.`),
+    notice("warn", "Copy it now", "This is the only time the token is shown. Use it for one of the two setups below."),
     h("h2", {}, "On your computer"),
     h("p", {}, "Needs Python and git. In a copy of AIngram, run pip install -r requirements-backup.txt, then this once. It makes a backup folder in your home folder, checks the first backup, and schedules one every night; if a check ever fails, a warning pops up."),
     ...block("Command", cmd),
@@ -257,15 +272,17 @@ function showBackupSetup(r, info) {
 }
 
 $("verify").addEventListener("click", async () => {
-  const out = $("verify-result");
-  out.className = "muted";
-  out.textContent = "Checking…";
+  const out = $("verify-result"), button = $("verify");
+  button.disabled = true;
+  say(out, "info", "Checking every hash in the log…");
   try {
     const { problems } = await api("/admin/api/verify", {});
-    out.className = problems.length ? "error" : "ok";
-    out.textContent = problems.length ? problems.join("\n") : "The chain verifies.";
-  } catch (e) { out.className = "error"; out.textContent = e.message; }
+    if (problems.length) say(out, "err", `The chain does not verify (${problems.length} problem${problems.length === 1 ? "" : "s"})`, problems.join("\n"));
+    else say(out, "ok", "The chain verifies", `Every hash was re-derived and the chain is unbroken, through #${state.me.head.seq}.`);
+  } catch (e) { say(out, "err", "Couldn't run the check", e.message); }
+  button.disabled = false;
 });
+$("export").addEventListener("click", () => toast("info", "Preparing the export", "Your browser will download it in a moment."));
 
 // -- memory: a search ribbon over an inbox. Excerpts on the left; the selected entry opens on the right.
 
@@ -321,7 +338,7 @@ async function loadList({ more = false, keep = null } = {}) {
       next = data.next_before;
     }
   } catch (err) {
-    if (ticket === mem.ticket) fill($("entry-list"), h("div", { class: "empty error" }, err.message));
+    if (ticket === mem.ticket) fill($("entry-list"), h("div", { class: "empty" }, notice("err", "Couldn't load entries", err.message)));
     return;
   }
   if (ticket !== mem.ticket) return;
@@ -378,7 +395,7 @@ async function select(id, { reading = true } = {}) {
   const box = $("detail");
   let e;
   try { e = await api(`/admin/api/entries/${encodeURIComponent(id)}`); }
-  catch (err) { fill(box, h("p", { class: "error" }, err.message)); return; }
+  catch (err) { fill(box, notice("err", "Couldn't open this entry", err.message)); return; }
   if (mem.selected !== id) return;  // a newer selection won
   const link = (x) => h("button", { class: "link", onclick: () => select(x) }, x);
   const links = (label, xs) => xs && xs.length ? h("p", { class: "links small" }, h("span", { class: "muted" }, `${label} `), xs.map(link)) : null;
@@ -426,8 +443,8 @@ function forget(e) {
       if (!result) return;
       const flagged = result.flagged_for_review || [];
       modal("Forgotten", [
-        h("p", {}, "The entry's content is gone."),
-        flagged.length ? h("p", {}, "These entries replaced or cited it. Check whether they repeat what was forgotten:") : null,
+        notice("ok", "The entry's content is gone", "The chain still verifies, and the brain will be told that something was forgotten, never what."),
+        flagged.length ? notice("warn", "Worth a look", "These entries replaced or cited it. Check whether they repeat what was forgotten:") : null,
         ...flagged.map((x) => h("button", { class: "link mono", onclick: () => { closeModal(); openEntry(x); } }, x)),
       ], [h("button", { onclick: closeModal }, "Done")]);
       loadList({ keep: e.id });
@@ -467,7 +484,8 @@ $("mint").addEventListener("submit", async (e) => {
 });
 
 async function revoke(k) {
-  const result = await signed({ action: "keys.revoke", key_id: k.key_id }, `Revoke ${k.key_id}`);
+  const result = await signed({ action: "keys.revoke", key_id: k.key_id }, `Revoke ${k.key_id}`, null,
+    ["Key revoked", `${k.key_id} no longer works.${k.bearer ? "" : " Its connector will have to connect again."}`]);
   if (result) keys();
 }
 
@@ -487,8 +505,8 @@ function showSecret(r) {
     return [h("p", { class: "muted" }, label), pre, h("button", { class: "ghost", onclick: (e) => copy(text, e.target) }, "Copy")];
   };
   modal(`Key ${r.key_id} is ready`, [
-    r.revoked ? h("p", {}, `${r.revoked} is revoked; agents using it must switch to this key.`) : null,
-    h("p", { class: "warn" }, "This is the only time the secret is shown. It is not stored anywhere, so copy it now."),
+    notice("ok", "Created", r.revoked ? `${r.revoked} is revoked; agents using it must switch to this key.` : `${r.key_id} can now write as Code.`),
+    notice("warn", "Copy it now", "This is the only time the secret is shown. It is not stored anywhere."),
     ...block("Secret", r.secret),
     ...block("Claude Code, in a terminal", cmd),
     ...block("Or in a project's .mcp.json", json),
@@ -541,14 +559,22 @@ function policyStatus() {
 }
 
 $("policy-text").addEventListener("input", () => { $("policy-text").dataset.dirty = "1"; policyStatus(); });
-$("policy-reset").addEventListener("click", () => { delete $("policy-text").dataset.dirty; policy(); });
+$("policy-reset").addEventListener("click", () => {
+  delete $("policy-text").dataset.dirty;
+  policy();
+  toast("info", "Edits discarded", "The policy in force is unchanged.");
+});
 
 async function checkPolicy(text) {
-  const err = $("policy-error"), diff = $("policy-diff");
-  show(err, false); show(diff, false);
+  const out = $("policy-error"), diff = $("policy-diff");
+  say(out, null); show(diff, false);
   const r = await api("/admin/api/policy/check", { body: text });
-  if (!r.valid) { err.textContent = r.error; show(err, true); return null; }
-  if (r.unchanged) { err.textContent = "No changes from the approved policy."; show(err, true); return null; }
+  if (!r.valid) { say(out, "err", "This policy isn't valid", r.error); return null; }
+  if (r.unchanged) { say(out, "info", "No changes", "This is the policy already in force."); return null; }
+  const lines = r.diff.split("\n");
+  const added = lines.filter((l) => /^\+(?!\+)/.test(l)).length, removed = lines.filter((l) => /^-(?!-)/.test(l)).length;
+  say(out, "ok", "The policy is valid", r.diff ? `${added} line${added === 1 ? "" : "s"} added, ${removed} removed; review them below.`
+    : "Approve it to put it in force.");
   fill(diff, ...r.diff.split("\n").map((line) =>
     h("span", { class: line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "" }, line + "\n")));
   show(diff, Boolean(r.diff));
@@ -556,21 +582,22 @@ async function checkPolicy(text) {
 }
 
 $("policy-check").addEventListener("click", async () => {
-  try { await checkPolicy($("policy-text").value); } catch (e) { $("policy-error").textContent = e.message; show($("policy-error"), true); }
+  try { await checkPolicy($("policy-text").value); } catch (e) { say($("policy-error"), "err", "Couldn't check the policy", e.message); }
 });
 
 $("policy-approve").addEventListener("click", async () => {
   // Approve exactly the text that was checked and shown, even if the box is edited meanwhile.
   const text = $("policy-text").value;
   let r;
-  try { r = await checkPolicy(text); } catch (e) { $("policy-error").textContent = e.message; show($("policy-error"), true); return; }
+  try { r = await checkPolicy(text); } catch (e) { say($("policy-error"), "err", "Couldn't check the policy", e.message); return; }
   if (!r) return;
   const result = await signed({ action: "policy.approve", body: text }, "Approve this policy",
     (action) => action.action === "policy.approve" && action.sha256 === r.sha256);
   if (!result) return;
   delete $("policy-text").dataset.dirty;
   await refreshMe();
-  policy();
+  await policy();
+  say($("policy-error"), "ok", "Policy approved and in force", `Version ${r.sha256.slice(0, 12)}. The server applies it from the next request.`);
 });
 
 // -- import
@@ -579,14 +606,13 @@ let importText = null;
 
 function importTab() {
   if (state.me && state.me.setup_needed) {
-    $("import-error").textContent = "Approve a policy first: imports are checked against it.";
-    show($("import-error"), true);
+    say($("import-error"), "warn", "Approve a policy first", "Imports are checked against it.");
   }
 }
 
 $("import-file").addEventListener("change", async (e) => {
   const file = e.target.files[0];
-  show($("import-error"), false);
+  say($("import-error"), null);
   show($("import-preview"), false);
   importText = null;
   if (!file) return;
@@ -595,14 +621,15 @@ $("import-file").addEventListener("change", async (e) => {
     const r = await api("/admin/api/import/check", { body: text });
     importText = text;
     renderImport(r, file.name);
-  } catch (err) { $("import-error").textContent = err.message; show($("import-error"), true); }
+  } catch (err) { say($("import-error"), "err", "Couldn't check the file", err.message); }
 });
 
 function renderImport(r, name) {
   const s = r.summary;
-  $("import-headline").textContent = r.valid
-    ? `${name}: ${s.entries} entries, all of them check out.`
-    : `${name}: ${r.problem_count} problem(s). Nothing can be imported until the file is fixed.`;
+  if (r.valid) say($("import-headline"), "ok", `${name}: ${s.entries} ${s.entries === 1 ? "entry checks" : "entries, all of them check"} out`,
+    "Review what will land below, then approve the import in your wallet.");
+  else say($("import-headline"), "err", `${name}: ${r.problem_count} problem${r.problem_count === 1 ? "" : "s"}`,
+    "Nothing can be imported until the file is fixed. The problem lines are listed below.");
   const stat = (label, value) => h("div", { class: "card stat" }, h("div", { class: "muted" }, label), h("div", { class: "big" }, value));
   const list = (obj) => Object.entries(obj).slice(0, 8).map(([k, v]) => `${k} ×${v}`).join(", ") || "none";
   fill($("import-stats"),
@@ -611,7 +638,7 @@ function renderImport(r, name) {
     stat("Dated", s.dated ? `${s.dated[0]} to ${s.dated[1]}` : "none"),
     h("div", { class: "card" }, h("div", { class: "muted" }, "Subjects"), h("div", {}, list(s.subjects))),
     h("div", { class: "card" }, h("div", { class: "muted" }, "Kinds"), h("div", {}, list(s.kinds))));
-  fill($("import-problems"), r.problems.map((p) => h("li", { class: "error" }, p)),
+  fill($("import-problems"), r.problems.map((p) => h("li", { class: "error mono small" }, p)),
     r.problem_count > r.problems.length ? h("li", { class: "muted" }, `and ${r.problem_count - r.problems.length} more`) : null);
   show($("import-apply"), r.valid);
   $("import-apply").dataset.sha = r.sha256 || "";
@@ -625,7 +652,9 @@ $("import-apply").addEventListener("click", async () => {
     (action) => action.action === "import.apply" && action.sha256 === sha && action.entries === count);
   if (!result) return;
   show($("import-apply"), false);
-  $("import-headline").textContent = `Imported ${result.imported} entries. They are in Memory now, written as the brain.`;
+  say($("import-headline"), "ok", `Imported ${result.imported} ${result.imported === 1 ? "entry" : "entries"}`,
+    [`They are in Memory now, written as the brain, recorded under ${result.key_id}. `,
+     h("button", { class: "link", onclick: () => openInMemory(null) }, "Open Memory →")]);
   $("import-file").value = "";
   importText = null;
 });

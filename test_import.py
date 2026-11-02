@@ -176,6 +176,13 @@ class Applying(Import):
         self.assertIsNone(svc.read(self.conn, self.policy, "brain", today)["dated"])
         self.assertEqual(core.verify(self.conn), [])
 
+    def test_overview_latest_is_by_original_date(self):
+        core.add_key(self.conn, key_id="k_brain_live", voice="brain")
+        svc.write(self.conn, self.policy, "k_brain_live", subject="misc", kind="fact", excerpt="written today")
+        self.signed({"action": "import.apply", "body": jsonl(
+            {"subject": "misc", "kind": "fact", "excerpt": "written in May", "date": "2026-05-07", "source": "a.md"})})
+        self.assertEqual(admin.overview(self.conn, self.policy)["latest"]["brain"]["excerpt"], "written today")
+
     def test_pins_reach_the_core_and_sources_survive(self):
         self.signed({"action": "import.apply", "body": jsonl(
             {"subject": "self/core", "kind": "fact", "excerpt": "who I am", "pinned": True, "source": "o.md",

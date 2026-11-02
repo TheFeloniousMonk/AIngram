@@ -26,6 +26,33 @@ window.AIngramWallet = (() => {
   }
 
   function show(el, on) { el.hidden = !on; }
+
+  // Feedback. kind is "ok", "err", "info" or "warn"; colour plus an icon, never colour alone.
+  const ICONS = { ok: "✓", err: "!", info: "i", warn: "!" };
+  function notice(kind, title, detail) {
+    return h("div", { class: `notice ${kind}`, role: kind === "err" ? "alert" : "status" },
+      h("span", { class: "icon", "aria-hidden": "true" }, ICONS[kind] || "i"),
+      h("div", { class: "text" }, detail ? [h("strong", {}, title), detail] : title));
+  }
+  // Put a banner into a placeholder element (and show it), or clear it with kind = null.
+  function say(el, kind, title, detail) {
+    if (!kind) { fill(el); show(el, false); return; }
+    fill(el, notice(kind, title, detail));
+    show(el, true);
+  }
+  function toast(kind, title, detail) {
+    let box = document.getElementById("toasts");
+    if (!box) {
+      box = h("div", { id: "toasts", class: "toasts", "aria-live": "polite" });
+      document.body.append(box);
+    }
+    const t = notice(kind, title, detail);
+    t.classList.add("toast");
+    const close = () => t.remove();
+    t.append(h("button", { class: "close", "aria-label": "Dismiss", onclick: close }, "×"));
+    box.append(t);
+    setTimeout(close, kind === "err" ? 10000 : 5000);
+  }
   function short(addr) { return addr ? addr.slice(0, 6) + "…" + addr.slice(-4) : ""; }
 
   // EIP-6963 lists every installed wallet; window.ethereum is the fallback.
@@ -75,9 +102,19 @@ window.AIngramWallet = (() => {
     return current.provider.request({ method: "personal_sign", params: [toHex(message), current.account] });
   }
 
+  function cancelled(e) {
+    return Boolean(e && (e.code === 4001 || /reject|denied|cancel/i.test(e.message || "")));
+  }
+
   function walletError(e) {
-    if (e && (e.code === 4001 || /reject|denied|cancel/i.test(e.message || ""))) return "You cancelled in the wallet. Nothing happened.";
+    if (cancelled(e)) return "You cancelled in the wallet. Nothing happened.";
     return (e && e.message) || String(e);
+  }
+
+  // A failed wallet step as a banner: cancelling is information, not an error.
+  function walletNotice(e) {
+    return cancelled(e) ? notice("info", "Cancelled", "You cancelled in the wallet. Nothing changed.")
+      : notice("err", "That didn't work", walletError(e));
   }
 
   // One button per installed wallet, or a hint when there is none.
@@ -94,7 +131,8 @@ window.AIngramWallet = (() => {
     }
   }
 
-  return { h, fill, show, short, list, connect, connectDefault, sign, walletError, renderButtons,
+  return { h, fill, show, short, list, connect, connectDefault, sign, walletError, walletNotice, cancelled,
+           renderButtons, notice, say, toast,
            onChange: (fn) => listeners.push(fn), account: () => current.account,
            connected: () => Boolean(current.provider && current.account) };
 })();

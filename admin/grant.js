@@ -17,9 +17,8 @@ async function api(path, body) {
   return data;
 }
 
-function fail(message) {
-  $("error").textContent = message;
-  W.show($("error"), true);
+function fail(title, detail) {
+  W.say($("error"), "err", title, detail);
 }
 
 async function load() {
@@ -36,7 +35,7 @@ async function load() {
     render();
   } catch (e) {
     W.show($("loading"), false);
-    fail(e.message);
+    fail("This approval link can't be used", e.message);
   }
 }
 
@@ -46,30 +45,34 @@ function render() {
 W.onChange(render);
 
 async function approve(w) {
-  W.show($("error"), false);
+  W.say($("error"), null);
   try {
     const account = await W.connect(w);
     const { message } = await api("/oauth/api/challenge", { r: sealed, address: account });
     $("message").textContent = message;
     W.show($("request"), false);
     W.show($("signing"), true);
+    W.say($("status"), "info", "Waiting for your wallet…");
     const signature = await W.sign(message);
-    $("status").textContent = "Checking the signature…";
+    W.say($("status"), "info", "Checking the signature…");
     const { redirect } = await api("/oauth/api/approve", { r: sealed, message, signature });
-    $("status").textContent = "Approved. Returning to the connector…";
-    location.assign(redirect);
+    W.say($("status"), "ok", "Approved", "The connector now has the brain voice. Taking you back to it…");
+    setTimeout(() => location.assign(redirect), 1200);
   } catch (e) {
     W.show($("signing"), false);
     W.show($("request"), true);
-    fail(W.walletError(e));
+    W.fill($("error"), W.walletNotice(e));
+    W.show($("error"), true);
   }
 }
 
 $("deny").addEventListener("click", async () => {
   try {
     const { redirect } = await api("/oauth/api/deny", { r: sealed });
-    location.assign(redirect);
-  } catch (e) { fail(e.message); }
+    W.show($("request"), false);
+    W.say($("error"), "info", "Not connected", "Nothing was granted. Taking you back to the connector…");
+    setTimeout(() => location.assign(redirect), 1200);
+  } catch (e) { fail("Couldn't decline", e.message); }
 });
 
 load();

@@ -20,6 +20,8 @@
   --warn-ink: #75560f;
   --ok-bg: #e4f3ea;
   --ok-ink: #1f6a3a;
+  --err-bg: #fbe7e4;
+  --err-ink: #8f2f27;
   --radius: 14px;
   color-scheme: light;
 }
@@ -44,6 +46,8 @@
     --warn-ink: #e6cf9a;
     --ok-bg: #18302a;
     --ok-ink: #a7dcc4;
+    --err-bg: #34211f;
+    --err-ink: #f2b0a9;
     color-scheme: dark;
   }
 }
@@ -225,3 +229,32 @@ table.keys { width: 100%; border-collapse: collapse; }
   .keys .actions button { margin: 0 .35rem 0 0; }
   .who .addr { display: none; }
 }
+
+/* Feedback: banners in place, toasts in the corner. Colour plus an icon, so meaning never
+   rests on colour alone. */
+.notice { display: flex; gap: .65rem; align-items: flex-start; padding: .75rem .9rem; border-radius: 10px;
+          border: 1px solid transparent; line-height: 1.45; margin: .5rem 0; }
+.notice .icon { flex: none; width: 1.35rem; height: 1.35rem; border-radius: 50%; display: inline-flex;
+                align-items: center; justify-content: center; font-size: .8rem; font-weight: 700; margin-top: .05rem; }
+.notice .text { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.notice .text strong { display: block; }
+.notice.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.notice.ok .icon { background: var(--ok-ink); color: var(--ok-bg); }
+.notice.err { background: var(--err-bg); color: var(--err-ink); }
+.notice.err .icon { background: var(--err-ink); color: var(--err-bg); }
+.notice.info { background: var(--accent-soft); color: var(--ink); border-color: var(--accent-line); }
+.notice.info .icon { background: var(--accent); color: var(--accent-ink); }
+.notice.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.notice.warn .icon { background: var(--warn-ink); color: var(--warn-bg); }
+
+.toasts { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 20; display: flex; flex-direction: column;
+          gap: .5rem; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+.toast { pointer-events: auto; margin: 0; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); animation: toast-in .18s ease-out; }
+.toast .close { margin-left: auto; background: none; border: none; color: inherit; padding: 0 .2rem; font-size: 1.1rem;
+                line-height: 1; opacity: .7; font-weight: 400; }
+.toast .close:hover { opacity: 1; }
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+@media (max-width: 640px) { .toasts { right: 16px; left: 16px; bottom: 16px; width: auto; } }
+
+button.copied { background: var(--ok-bg); color: var(--ok-ink); border-color: transparent; }

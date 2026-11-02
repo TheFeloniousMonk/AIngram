@@ -23,7 +23,7 @@
     <h1>Sign in</h1>
     <p class="muted">Use the admin wallet for <span id="signin-host"></span>. Signing in lets you look around. Every change asks your wallet again, and shows you exactly what you are approving.</p>
     <div id="wallets" class="stack"></div>
-    <p class="error" id="signin-error" hidden></p>
+    <div id="signin-error" hidden></div>
   </section>
 </main>
 
@@ -55,7 +55,7 @@
         <button id="verify">Verify now</button>
         <a class="button ghost" id="export" href="/admin/api/export">Download export</a>
       </div>
-      <p id="verify-result"></p>
+      <div id="verify-result" hidden></div>
     </div>
     <div class="card">
       <h2>Nightly backup</h2>
@@ -120,7 +120,7 @@
         <button id="policy-approve">Approve in wallet</button>
         <button class="link" id="policy-reset">Discard edits</button>
       </div>
-      <p class="error" id="policy-error" hidden></p>
+      <div id="policy-error" hidden></div>
       <pre class="diff" id="policy-diff" hidden></pre>
     </div>
   </section>
@@ -130,9 +130,9 @@
       <h2>Import existing memory</h2>
       <p class="muted">Bring in memory you already have, such as a Claude project's files, all at once. Have the brain turn them into an import file (one entry per line; the README has the format and a prompt to use), then choose it here. Every line is checked against the policy first, and nothing is written until you approve the whole file in your wallet. Entries are written as the brain and tagged with where they came from.</p>
       <div class="row"><input type="file" id="import-file" accept=".jsonl,.json,.txt"></div>
-      <p class="error" id="import-error" hidden></p>
+      <div id="import-error" hidden></div>
       <div id="import-preview" hidden>
-        <p id="import-headline"></p>
+        <div id="import-headline"></div>
         <div class="grid" id="import-stats"></div>
         <ul class="plain" id="import-problems"></ul>
         <div class="row"><button id="import-apply" hidden>Import in wallet</button></div>

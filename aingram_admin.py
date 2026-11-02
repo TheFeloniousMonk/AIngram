@@ -108,7 +108,7 @@ def overview(conn, policy: Policy | None) -> dict:
     for voice in ("brain", "code"):
         row = conn.execute(
             f"SELECT {SALIENCE_COLS} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id {DATED} "
-            "WHERE e.voice = ? AND e.kind != 'redaction' AND e.redacted_at IS NULL ORDER BY e.seq DESC LIMIT 1",
+            f"WHERE e.voice = ? AND e.kind != 'redaction' AND e.redacted_at IS NULL ORDER BY {svc.WHEN} DESC, e.seq DESC LIMIT 1",
             (voice,)).fetchone()
         latest[voice] = {**_row(row), "id_full": row["id"]} if row else None
     out = {"head": svc.head(conn), "entries": counts, "redacted": redacted, "active_keys": active,
