@@ -48,8 +48,10 @@ def _now(now: datetime | None) -> datetime:
 
 
 def head(conn) -> dict:
+    """The chain head, in every response. `id` is short for display; `id_full` is the exact
+    entry hash, for anchoring a check (has anyone written since? is this the entry I saw?)."""
     seq, entry_id = core._head(conn)
-    return {"seq": seq, "id": short(entry_id)}
+    return {"seq": seq, "id": short(entry_id), "id_full": entry_id}
 
 
 def resolve_id(conn, ref: str) -> str:

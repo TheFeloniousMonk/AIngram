@@ -260,6 +260,17 @@ class Views(Harness):
         w = self.ok(self.code, "write", subject="aingram/x", kind="decision", excerpt="e")
         self.assertEqual(w["head"]["seq"], h1["seq"] + 1)
         self.assertEqual(w["head"]["id"], w["id"])
+        # The full hash anchors checks: it is the exact id of the newest entry in the chain.
+        newest = self.conn.execute("SELECT id FROM entries ORDER BY seq DESC LIMIT 1").fetchone()[0]
+        self.assertEqual(w["head"]["id_full"], newest)
+        self.assertEqual(len(w["head"]["id_full"]), 64)
+        self.assertTrue(newest.startswith(w["head"]["id"]))
+
+    def test_every_tool_returns_the_full_head(self):
+        e = self.ok(self.brain, "write", subject="misc", kind="fact", excerpt="x")
+        for tool, args in (("boot", {}), ("recall", {"subject": "misc"}), ("read", {"id": e["id"]}),
+                           ("redact", {"id": e["id"], "reason": "r"})):
+            self.assertEqual(len(self.ok(self.brain, tool, **args)["head"]["id_full"]), 64, tool)
 
 
 class Supersede(Harness):

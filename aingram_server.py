@@ -47,7 +47,9 @@ Call boot first in a session: it returns the pinned core, the recent tail and a 
 recall finds entries by subject (folded current state) or by full-text query; it returns excerpts only.
 read returns one full entry by id (a 12-character prefix is enough).
 write appends an entry. Set untrusted_ctx (for example 'web') when outside text was in your context.
-redact forgets an entry's content, leaving a tombstone. Every response includes the chain head."""
+redact forgets an entry's content, leaving a tombstone.
+Every response includes the chain head: seq, a short id for display, and id_full, the exact
+entry hash. If seq or id_full changed since you last looked, someone wrote in between."""
 
 
 class AIngram:

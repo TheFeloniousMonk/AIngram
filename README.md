@@ -133,7 +133,7 @@ python aingram_admin.py policy status
 - What signatures can't stop: anyone who can write the database file or the server's environment as the service user can forge rows or swap the admin address. Run the server as a dedicated user that owns the store and `.env` (mode 0600), and nobody else. The defense against root on the host is detection off the host: the [nightly backup](#nightly-backup), which trusts its own copy of the admin address, not the server's.
 - A backup token can only download the export (entries without redaction reasons, policy approvals and texts, and the key list without secrets). It can't use MCP or the admin page. Revoke it on the overview if it leaks.
 - Upgrades add new tables automatically: the server re-applies `schema.sql` whenever it has changed, and every statement in it only creates what is missing.
-- The chain head (latest seq and id) is in every response, for every voice. That reveals that someone wrote, never what.
+- The chain head is in every response, for every voice: `seq`, a short `id` for display, and `id_full`, the exact 64-character entry hash, so a client can detect writes made in between and anchor a check to an exact entry. That reveals that someone wrote, never what.
 
 ## Tests
 
