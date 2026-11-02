@@ -15,6 +15,8 @@ from urllib.parse import urlparse
 
 ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
+# The first draft the admin page offers before any policy is approved.
+DEFAULT_POLICY = Path(__file__).with_name("policy.example.yaml")
 
 
 class ConfigError(Exception):
@@ -74,10 +76,24 @@ class Settings:
                 raise ConfigError("AINGRAM_PUBLIC_URL must be a bare origin such as https://host")
             if parsed.scheme != "https" and not (parsed.scheme == "http" and parsed.hostname in LOOPBACK):
                 raise ConfigError("AINGRAM_PUBLIC_URL must be https:// (plain http only for localhost)")
+            # Normalise to what browsers send as Origin: lowercase host, no default port.
+            try:
+                url_port = parsed.port
+            except ValueError:
+                raise ConfigError("AINGRAM_PUBLIC_URL has an invalid port") from None
+            host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+            default = {"https": 443, "http": 80}[parsed.scheme]
+            public_url = f"{parsed.scheme}://{host}" + (f":{url_port}" if url_port not in (None, default) else "")
+        # Bound into every signed admin command. Defaults to the public hostname.
+        server_name = _get(env, "AINGRAM_SERVER_NAME", False)
+        if server_name is None and public_url is not None:
+            server_name = urlparse(public_url).netloc
+        if server_name is None and (need_admin or need_server):
+            raise ConfigError("AINGRAM_SERVER_NAME or AINGRAM_PUBLIC_URL must be set (see .env.example)")
         return cls(
             db_path=_get(env, "AINGRAM_DB", True),
-            policy_path=_get(env, "AINGRAM_POLICY", False, "policy.yaml"),
-            server_name=_get(env, "AINGRAM_SERVER_NAME", need_admin or need_server),
+            policy_path=_get(env, "AINGRAM_POLICY", False, str(DEFAULT_POLICY)),
+            server_name=server_name,
             admin_address=address,
             host=_get(env, "AINGRAM_HOST", False, "127.0.0.1"),
             port=int(port),

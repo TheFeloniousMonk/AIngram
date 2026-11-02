@@ -55,8 +55,8 @@ class Harness(unittest.TestCase):
         self.addCleanup(self.client.__exit__, None, None, None)
 
     def approve_policy(self):
-        sha = svc.load_policy(self.policy_path).sha256
-        msg = admin_auth.prepare(self.conn, SERVER, {"action": "policy.reload", "sha256": sha})
+        sha = svc.store_policy_version(self.conn, self.policy_path.read_text(encoding="utf-8")).sha256
+        msg = admin_auth.prepare(self.conn, SERVER, {"action": "policy.approve", "sha256": sha})
         sig = ADMIN.sign_message(encode_defunct(text=msg)).signature.hex()
         admin_auth.authorize(self.conn, SERVER, ADMIN.address, msg, sig)
         admin_auth.log_outcome(self.conn, msg, ok=True)
@@ -335,23 +335,44 @@ class ReadLimits(Harness):
 
 
 class PolicyLifecycle(Harness):
-    def test_unapproved_policy_refuses_to_start(self):
-        self.policy_path.write_text(self.policy_path.read_text() + "\n# edited\n")
-        with self.assertRaises(PolicyError):
-            aingram_server.create_app(self.settings)
+    def test_new_server_starts_but_tools_wait_for_a_policy(self):
+        settings = Settings.from_env({
+            "AINGRAM_DB": str(Path(self.dir.name) / "fresh.db"), "AINGRAM_ADMIN_ADDRESS": ADMIN.address,
+            "AINGRAM_PUBLIC_URL": BASE, "AINGRAM_PORT": str(PORT)}, need_server=True)
+        conn = core.connect(settings.db_path)
+        self.addCleanup(conn.close)
+        secret = svc.new_secret()
+        core.add_key(conn, key_id="k_code_f", voice="code", secret_hash=svc.hash_secret(secret))
+        with TestClient(aingram_server.create_app(settings), base_url=BASE) as client:
+            self.client, saved = client, self.client
+            try:
+                self.refused(secret, "boot", "not set up yet")
+            finally:
+                self.client = saved
 
-    def test_signed_reload_applies_on_next_request(self):
+    def test_editing_the_file_changes_nothing(self):
+        raw = yaml.safe_load(self.policy_path.read_text())
+        raw["voices"]["code"]["may_write_subjects"].append("newproject/**")
+        self.policy_path.write_text(yaml.safe_dump(raw))
+        self.refused(self.code, "write", "may not write under", subject="newproject/x",
+                     kind="decision", excerpt="e")
+
+    def test_signed_approval_applies_on_next_request(self):
         raw = yaml.safe_load(self.policy_path.read_text())
         raw["voices"]["code"]["may_write_subjects"].append("newproject/**")
         self.refused(self.code, "write", "may not write under", subject="newproject/x",
                      kind="decision", excerpt="e")
         self.policy_path.write_text(yaml.safe_dump(raw))
-        # An edit alone changes nothing...
-        self.refused(self.code, "write", "may not write under", subject="newproject/x",
-                     kind="decision", excerpt="e")
-        # ...until the admin signs it.
         self.approve_policy()
         self.ok(self.code, "write", subject="newproject/x", kind="decision", excerpt="e")
+
+    def test_altered_policy_text_refuses_to_start(self):
+        # Simulates someone with write access to the file: the stored text no longer matches its signed hash.
+        sha = svc.approved_policy_hash(self.conn, SERVER, ADMIN.address)
+        self.conn.execute("DROP TRIGGER policy_versions_no_update")
+        self.conn.execute("UPDATE policy_versions SET body = body || '\n# swapped\n' WHERE sha256 = ?", (sha,))
+        with self.assertRaisesRegex(PolicyError, "does not match"):
+            aingram_server.create_app(self.settings)
 
 
 if __name__ == "__main__":

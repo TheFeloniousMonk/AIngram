@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>AIngram admin</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<script src="/admin/admin.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">AIngram <span class="muted">admin</span></div>
+  <div class="who" id="who" hidden>
+    <span class="addr" id="who-addr"></span>
+    <button class="ghost" id="signout">Sign out</button>
+  </div>
+</header>
+
+<main id="signin" class="signin" hidden>
+  <section class="card narrow">
+    <h1>Sign in</h1>
+    <p class="muted">Use the admin wallet for <span id="signin-host"></span>. Signing in lets you look around. Every change asks your wallet again, and shows you exactly what you are approving.</p>
+    <div id="wallets" class="stack"></div>
+    <p class="error" id="signin-error" hidden></p>
+  </section>
+</main>
+
+<main id="app" hidden>
+  <div class="banner" id="setup" hidden>
+    <strong>No policy is approved yet.</strong> Memory stays off until you review the policy and approve it.
+    <button class="link" data-goto="policy">Go to policy</button>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="overview" class="on">Overview</button>
+    <button data-tab="memory">Memory</button>
+    <button data-tab="keys">Keys</button>
+    <button data-tab="policy">Policy</button>
+    <button data-tab="activity">Activity</button>
+  </nav>
+
+  <section class="tab" id="tab-overview">
+    <div class="grid" id="stats"></div>
+    <div class="card">
+      <h2>Chain</h2>
+      <p class="muted">Re-derives every hash in the log and checks the chain is unbroken.</p>
+      <div class="row">
+        <button id="verify">Verify now</button>
+        <a class="button ghost" id="export" href="/admin/api/export">Download export</a>
+      </div>
+      <p id="verify-result"></p>
+    </div>
+    <div class="card">
+      <h2>Sessions</h2>
+      <p class="muted">Ends every admin session, on every device, including this one. Use it if you signed in somewhere you shouldn't have.</p>
+      <div class="row"><button class="ghost danger" id="signout-all">Sign out everywhere</button></div>
+    </div>
+    <div class="card">
+      <h2>Connect an agent</h2>
+      <p class="muted">MCP endpoint</p>
+      <div class="copyrow"><code id="mcp-url"></code><button class="ghost" data-copy="mcp-url">Copy</button></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-memory" hidden>
+    <div class="memory">
+      <aside class="card subjects">
+        <form id="search" class="row">
+          <input id="query" type="search" placeholder="Search memory" autocomplete="off">
+        </form>
+        <button class="link" id="all-entries">All entries</button>
+        <ul id="subject-list" class="plain"></ul>
+      </aside>
+      <div class="card entries">
+        <h2 id="entries-title">Latest entries</h2>
+        <ul id="entry-list" class="plain"></ul>
+        <button class="ghost" id="more" hidden>Older</button>
+      </div>
+      <div class="card detail" id="detail" hidden></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-keys" hidden>
+    <div class="card">
+      <h2>New code key</h2>
+      <p class="muted">For a coding agent such as Claude Code. The brain connects by wallet sign-in instead and needs no key.</p>
+      <form id="mint" class="row">
+        <input id="mint-label" placeholder="Label, e.g. laptop Claude Code" maxlength="80" autocomplete="off" required>
+        <button type="submit">Create key</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Keys</h2>
+      <table class="keys"><thead><tr><th>Key</th><th>Voice</th><th>Label</th><th>Last used</th><th>State</th><th></th></tr></thead>
+        <tbody id="key-rows"></tbody></table>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-policy" hidden>
+    <div class="card">
+      <h2>Policy</h2>
+      <p class="muted" id="policy-state"></p>
+      <textarea id="policy-text" spellcheck="false" rows="28"></textarea>
+      <div class="row">
+        <button class="ghost" id="policy-check">Check changes</button>
+        <button id="policy-approve">Approve in wallet</button>
+        <button class="link" id="policy-reset">Discard edits</button>
+      </div>
+      <p class="error" id="policy-error" hidden></p>
+      <pre class="diff" id="policy-diff" hidden></pre>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-activity" hidden>
+    <div class="card">
+      <h2>Admin activity</h2>
+      <p class="muted">Every signed command, newest first. The signed messages are kept, so each one can be checked later.</p>
+      <ul id="log" class="plain log"></ul>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="modal" hidden>
+  <div class="card dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h2 id="modal-title"></h2>
+    <div id="modal-body"></div>
+    <div class="row end" id="modal-actions"></div>
+  </div>
+</div>
+</body>
+</html>

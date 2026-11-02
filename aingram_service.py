@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 import admin_auth
 import aingram_core as core
-from aingram_policy import Policy, PolicyError, load_policy
+from aingram_policy import Policy, PolicyError, parse_policy
 
 SHORT_ID = 12
 ID_PREFIX_MIN = 8
@@ -27,7 +27,7 @@ PREFIX_RE = re.compile(r"^[0-9a-f]{%d,64}$" % ID_PREFIX_MIN)
 SECRET_PREFIX = "aig_"
 SECRET_RE = re.compile(r"^aig_[A-Za-z0-9_-]{43}$")
 LAST_USED_RESOLUTION_S = 60
-POLICY_RELOAD_PREFIX = '{"action":"policy.reload"'
+POLICY_APPROVE_PREFIX = '{"action":"policy.approve"'
 
 
 class ServiceError(core.AIngramError):
@@ -148,19 +148,41 @@ def ensure_admin_key(conn, admin_address: str) -> str:
 
 # ---------------------------------------------------------------- policy approval
 
+def store_policy_version(conn, body: str) -> Policy:
+    """Validate a policy text and keep it as a candidate for approval.
+    Raises PolicyError if it is invalid; nothing is stored then."""
+    if not isinstance(body, str):
+        raise PolicyError("the policy must be text")
+    policy = parse_policy(body.encode("utf-8"))
+    conn.execute("INSERT OR IGNORE INTO policy_versions (sha256, body, added_at) VALUES (?,?,?)",
+                 (policy.sha256, body, core.utc_now()))
+    return policy
+
+
+def policy_body(conn, sha256: str) -> str | None:
+    row = conn.execute("SELECT body FROM policy_versions WHERE sha256 = ?", (sha256,)).fetchone()
+    return row["body"] if row else None
+
+
 def approved_policy_hash(conn, server_name: str, admin_address: str) -> str | None:
-    """sha256 of the policy most recently approved by a signed `policy reload`.
+    """sha256 of the policy most recently approved by a signed policy.approve.
 
     Only signed rows count, and "most recent" is the signed Issued time, not row
     order: unsigned rows (done/failed events, log ids) are trivially insertable by
     anyone who can write the file, so they must not be able to pick an older
-    approval. Every candidate signature is re-verified; one bad row fails loudly.
-    None if nothing is approved."""
+    approval. Every candidate signature is re-verified, and rows that are not signed
+    by this admin for this server are ignored. None if nothing is approved."""
     best = None
     for row in conn.execute(
             "SELECT message, signature FROM admin_log WHERE event = 'authorized' AND action LIKE ?",
-            (POLICY_RELOAD_PREFIX + "%",)):
-        action = admin_auth.verify_logged(row["message"], row["signature"], server_name, admin_address)
+            (POLICY_APPROVE_PREFIX + "%",)):
+        try:
+            action = admin_auth.verify_logged(row["message"], row["signature"], server_name, admin_address)
+        except admin_auth.AdminAuthError:
+            # Signed for another server name or by another wallet (the admin address or public
+            # URL changed): not an approval for this server. The server starts with none, and
+            # the current admin approves again on the admin page.
+            continue
         issued = admin_auth.parse_message(row["message"])["issued"]
         if best is None or issued > best[0]:
             best = (issued, action.get("sha256"))
@@ -170,22 +192,25 @@ def approved_policy_hash(conn, server_name: str, admin_address: str) -> str | No
 def policy_approval_marker(conn) -> int:
     """Changes whenever a new policy approval is logged; cheap to poll."""
     row = conn.execute("SELECT MAX(log_id) FROM admin_log WHERE event = 'authorized' AND action LIKE ?",
-                       (POLICY_RELOAD_PREFIX + "%",)).fetchone()
+                       (POLICY_APPROVE_PREFIX + "%",)).fetchone()
     return row[0] or 0
 
 
-def load_approved_policy(conn, path, server_name: str, admin_address: str) -> Policy:
-    """Load the policy file, refusing it unless its exact bytes were approved by the admin wallet."""
-    policy = load_policy(path)
+def load_approved_policy(conn, server_name: str, admin_address: str) -> Policy | None:
+    """The policy the admin wallet approved last, or None if none has been approved yet.
+    Raises PolicyError if an approval does not verify or its text is missing or altered."""
     try:
         approved = approved_policy_hash(conn, server_name, admin_address)
     except admin_auth.AdminAuthError as e:
         raise PolicyError(f"policy approval in admin_log does not verify: {e}") from None
     if approved is None:
-        raise PolicyError("no approved policy: run `aingram_admin.py policy reload` and sign it")
-    if approved != policy.sha256:
-        raise PolicyError(f"policy file {policy.sha256[:12]} is not the approved policy {approved[:12]}; "
-                          "sign it with `aingram_admin.py policy reload`")
+        return None
+    body = policy_body(conn, approved)
+    if body is None:
+        raise PolicyError(f"approved policy {approved[:12]} is missing from policy_versions")
+    policy = parse_policy(body.encode("utf-8"))
+    if policy.sha256 != approved:
+        raise PolicyError(f"stored text of policy {approved[:12]} does not match its approved hash")
     return policy
 
 

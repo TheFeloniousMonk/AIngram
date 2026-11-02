@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS voice_state (
 
 -- Signed admin commands. Authority is the admin wallet, not shell access:
 -- every admin action needs a fresh nonce issued by the box and a signature
--- from the admin address in policy.yaml.
+-- from the admin address (AINGRAM_ADMIN_ADDRESS).
 CREATE TABLE IF NOT EXISTS admin_nonces (
     nonce      TEXT PRIMARY KEY,
     issued_at  TEXT NOT NULL,
@@ -197,4 +197,41 @@ END;
 CREATE TRIGGER IF NOT EXISTS admin_log_no_update BEFORE UPDATE ON admin_log
 BEGIN
     SELECT RAISE(ABORT, 'admin_log is append-only');
+END;
+
+-- Admin web sessions, opened by a wallet sign-in. Only the token's hash is
+-- kept. A session lets the admin look; every change still needs a signed
+-- command. Sessions end by stamping ended_at; rows are never deleted.
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    token_hash   TEXT PRIMARY KEY CHECK (length(token_hash) = 64),
+    address      TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    ended_at     TEXT
+);
+
+CREATE TRIGGER IF NOT EXISTS admin_sessions_no_delete BEFORE DELETE ON admin_sessions
+BEGIN
+    SELECT RAISE(ABORT, 'sessions are ended, never deleted');
+END;
+
+-- Policy texts, keyed by the sha256 of their UTF-8 bytes. A row here is only a
+-- candidate: the policy in force is the one a signed policy.approve names, and
+-- the loader recomputes the hash, so a swapped body is refused.
+CREATE TABLE IF NOT EXISTS policy_versions (
+    sha256   TEXT PRIMARY KEY CHECK (length(sha256) = 64),
+    body     TEXT NOT NULL,
+    added_at TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS policy_versions_no_delete BEFORE DELETE ON policy_versions
+BEGIN
+    SELECT RAISE(ABORT, 'policy_versions is append-only');
+END;
+
+-- Keep this last: connect() treats its presence as "schema is current".
+CREATE TRIGGER IF NOT EXISTS policy_versions_no_update BEFORE UPDATE ON policy_versions
+BEGIN
+    SELECT RAISE(ABORT, 'policy_versions is append-only');
 END;

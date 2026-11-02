@@ -1,9 +1,11 @@
-# AIngram policy. Copy to policy.yaml (or point AINGRAM_POLICY at your copy)
-# and edit it for your deployment. Keep your real policy under version control
-# somewhere you control: changing what a voice may do should be a reviewable,
-# revertible commit, never something a tool call can do.
+# AIngram policy: who may write, read and redact what.
 #
-# Read at server startup; the server refuses to start on an invalid file.
+# This file is the starting draft the admin page (/admin) offers on a new
+# server. Edit it there, then approve it with the admin wallet. Every approved
+# version is kept in the database, and only the admin wallet can approve one:
+# no tool call, no voice and no shell command changes what a voice may do.
+# An invalid policy is refused before it can be signed.
+#
 # The core enforces integrity; this file decides permission.
 #
 # Subjects are path-like. A pattern ending in /** matches the prefix and
@@ -32,9 +34,8 @@ voices:
     daily_write_cap: 60
 
   admin:
-    # Reachable only from the admin CLI on the server, never over MCP, and
-    # every action must be signed by the admin wallet. Shell access alone is
-    # not admin.
+    # Reachable only from the admin page, never over MCP, and every change
+    # must be signed by the admin wallet. Shell access alone is not admin.
     may_write_kinds: [redaction]
     may_write_subjects: ["_redactions"]
     may_read_subjects: ["**"]

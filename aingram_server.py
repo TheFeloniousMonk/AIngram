@@ -1,10 +1,12 @@
-"""AIngram MCP server: five tools over streamable HTTP, bearer-key auth.
+"""AIngram MCP server: five tools over streamable HTTP, bearer-key auth,
+plus the admin page at /admin (aingram_web.py).
 
 Run behind a TLS reverse proxy:  python aingram_server.py
-Settings come from the environment (.env.example). The server refuses to
-start unless the policy file is valid and its exact bytes were approved by a
-signed `aingram_admin.py policy reload`. A new approval is picked up on the
-next request; an unapproved edit to the file is ignored and logged.
+Settings come from the environment (.env.example). The policy in force is the
+one the admin wallet last approved on the admin page. Until one is approved,
+the tools refuse every call and only the admin page works. A new approval is
+picked up on the next request. The server refuses to start if a logged
+approval does not verify.
 
 The caller's voice comes only from their key. No tool argument can set it.
 """
@@ -33,6 +35,7 @@ from starlette.responses import JSONResponse
 
 import aingram_core as core
 import aingram_service as svc
+import aingram_web
 from aingram_config import ConfigError, Settings, load_env
 from aingram_policy import Policy, PolicyError
 
@@ -53,10 +56,12 @@ class AIngram:
         self.settings = settings
         self._lock = threading.Lock()
         with self.connect() as conn:
-            self.policy = svc.load_approved_policy(conn, settings.policy_path,
-                                                   settings.server_name, settings.admin_address)
+            self.policy = svc.load_approved_policy(conn, settings.server_name, settings.admin_address)
             self._marker = svc.policy_approval_marker(conn)
-        log.info("policy %s loaded", self.policy.sha256[:12])
+        if self.policy is None:
+            log.warning("no policy approved yet: sign in at %s/admin and approve one", settings.public_url)
+        else:
+            log.info("policy %s loaded", self.policy.sha256[:12])
 
     @contextmanager
     def connect(self):
@@ -66,19 +71,20 @@ class AIngram:
         finally:
             conn.close()
 
-    def current_policy(self, conn) -> Policy:
+    def current_policy(self, conn) -> Policy | None:
         marker = svc.policy_approval_marker(conn)
         if marker != self._marker:
             with self._lock:
                 if marker != self._marker:
                     try:
-                        self.policy = svc.load_approved_policy(conn, self.settings.policy_path,
-                                                               self.settings.server_name,
-                                                               self.settings.admin_address)
-                        log.info("policy %s approved and loaded", self.policy.sha256[:12])
+                        policy = svc.load_approved_policy(conn, self.settings.server_name,
+                                                          self.settings.admin_address)
+                        if policy is not None:
+                            self.policy = policy
+                            log.info("policy %s approved and loaded", policy.sha256[:12])
                     except PolicyError as e:
                         log.error("new policy approval not applied, keeping %s: %s",
-                                  self.policy.sha256[:12], e)
+                                  self.policy.sha256[:12] if self.policy else "none", e)
                     self._marker = marker
         return self.policy
 
@@ -136,7 +142,10 @@ def build_server(app: AIngram) -> MCPServer:
         key_id, voice = _caller(ctx)
         try:
             with app.connect() as conn:
-                return _json(fn(conn, app.current_policy(conn), key_id, voice))
+                policy = app.current_policy(conn)
+                if policy is None:
+                    raise ToolError("AIngram is not set up yet: the admin has not approved a policy")
+                return _json(fn(conn, policy, key_id, voice))
         except (svc.ServiceError, core.AIngramError) as e:
             raise ToolError(str(e)) from None
         except sqlite3.IntegrityError as e:
@@ -201,6 +210,7 @@ def build_server(app: AIngram) -> MCPServer:
     async def healthz(_request: Request) -> JSONResponse:
         return JSONResponse({"ok": True})
 
+    aingram_web.add_routes(server, app)
     return server
 
 
@@ -215,7 +225,7 @@ def transport_security(settings: Settings) -> TransportSecuritySettings:
 
 
 def create_app(settings: Settings):
-    """The ASGI app. Raises PolicyError if the policy is invalid or unapproved."""
+    """The ASGI app. Raises PolicyError if a logged policy approval does not verify."""
     app = AIngram(settings)
     server = build_server(app)
     return server.streamable_http_app(

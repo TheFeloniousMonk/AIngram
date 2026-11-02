@@ -1,275 +1,401 @@
-"""AIngram admin CLI. Run on the server, in a shell; it never listens on the network.
+"""AIngram admin operations, and a read-only CLI for scripts and the nightly export.
 
-Read-only commands need no signature:
+The admin works through the web page at /admin (aingram_web.py). Signing in
+with the admin wallet opens a session that can look at everything. Every
+change is a signed command: the page asks the server to prepare() it, the
+wallet shows the admin the exact message and signs it, and confirm() checks
+the signature, performs exactly the signed action and logs the outcome.
+A refused signature changes nothing.
+
+The CLI never changes anything and needs no signature:
     keys list | verify | export --out FILE | policy status
-
-Every command that changes anything is signed by the admin wallet:
-    keys mint --voice code --label TEXT
-    keys revoke KEY_ID
-    keys rotate KEY_ID [--label TEXT]
-    redact ID --reason TEXT
-    policy reload
-
-For a signed command the tool prints a message, waits for the admin to sign it
-with their wallet (EIP-191 personal_sign) and paste the signature, checks it,
-performs exactly the action that was signed, and logs the outcome. A refused
-signature changes nothing. There is no flag that skips the signature.
 """
 
 from __future__ import annotations
 
 import argparse
+import difflib
+import json
 import sys
+import threading
 import unicodedata
 
 import admin_auth
 import aingram_core as core
 import aingram_service as svc
 from aingram_config import ConfigError, Settings, load_env
-from aingram_policy import PolicyError, load_policy
+from aingram_policy import Policy, PolicyError
+
+LIST_MAX = 100
+SUBJECTS_MAX = 1000
+LABEL_MAX = 80
+REASON_MAX = 500
 
 
 class Refused(Exception):
-    pass
+    """The admin asked for something that can't be done. Safe to show."""
 
 
-def plain_text(value: str, what: str) -> str:
+class PolicyDrafts:
+    """The one policy text waiting for a signature, held in memory.
+
+    Unsigned text never reaches the database, so a stolen session can't fill
+    policy_versions (which is append-only). Preparing a new draft replaces the
+    old one, so an older, still-unsigned approval can't land after a newer one."""
+
+    def __init__(self):
+        self._draft: tuple[str, str] | None = None  # (sha256, body)
+        self._lock = threading.Lock()
+
+    def put(self, sha256: str, body: str) -> None:
+        with self._lock:
+            self._draft = (sha256, body)
+
+    def get(self, sha256: str) -> str | None:
+        with self._lock:
+            return self._draft[1] if self._draft and self._draft[0] == sha256 else None
+
+    def clear(self, sha256: str) -> None:
+        with self._lock:
+            if self._draft and self._draft[0] == sha256:
+                self._draft = None
+
+
+DRAFTS = PolicyDrafts()
+
+
+def plain_text(value, what: str, max_len: int) -> str:
     """Labels and reasons go into the message the wallet shows. Control, format
     and line/paragraph separator characters could make that message look like
     something else, so they are refused."""
-    value = value.strip()
-    if not value:
+    if not isinstance(value, str) or not value.strip():
         raise Refused(f"{what} is required")
+    value = value.strip()
+    if len(value) > max_len:
+        raise Refused(f"{what} is longer than {max_len} characters")
     if any(unicodedata.category(c)[0] == "C" or unicodedata.category(c) in ("Zl", "Zp") for c in value):
         raise Refused(f"{what} may not contain control, format or line-separator characters")
     return value
 
 
-class Admin:
-    def __init__(self, settings: Settings, ask=input, out=print):
-        self.s = settings
-        self.ask = ask
-        self.out = out
-        self.conn = core.connect(settings.db_path)
+# ---------------------------------------------------------------- read-only views
 
-    # -- signing
+def keys(conn) -> list[dict]:
+    return [{"key_id": r["key_id"], "voice": r["voice"], "label": r["label"],
+             "created_at": r["created_at"], "revoked_at": r["revoked_at"],
+             "last_used_at": r["last_used_at"], "bearer": r["secret_hash"] is not None}
+            for r in conn.execute("SELECT * FROM keys ORDER BY created_at, key_id")]
 
-    def signed(self, action: dict, perform) -> None:
-        """Prepare, collect a signature, authorize, perform the signed action, log."""
-        policy = load_policy(self.s.policy_path)
-        message = admin_auth.prepare(self.conn, self.s.server_name, action,
-                                     ttl_seconds=policy.command_ttl_seconds)
-        self.out("Sign this exact message with the admin wallet (personal_sign):\n")
-        self.out(message)
-        self.out(f"\nAs hex: 0x{message.encode('utf-8').hex()}\n")
-        signature = self.ask("Signature: ").strip()
-        try:
-            signed_action = admin_auth.authorize(self.conn, self.s.server_name, self.s.admin_address,
-                                                 message, signature)
-        except admin_auth.AdminAuthError as e:
-            raise Refused(f"refused: {e}. Nothing was changed.") from None
-        try:
-            detail = perform(signed_action)
-        except Exception as e:
-            admin_auth.log_outcome(self.conn, message, ok=False, detail=str(e))
-            raise Refused(f"failed: {e}") from None
-        admin_auth.log_outcome(self.conn, message, ok=True, detail=detail or "")
 
-    # -- read-only
+def overview(conn, policy: Policy | None) -> dict:
+    counts = {r["voice"]: r["n"] for r in conn.execute(
+        "SELECT voice, COUNT(*) AS n FROM entries WHERE kind != 'redaction' GROUP BY voice")}
+    redacted = conn.execute("SELECT COUNT(*) FROM entries WHERE redacted_at IS NOT NULL").fetchone()[0]
+    active = conn.execute("SELECT COUNT(*) FROM keys WHERE revoked_at IS NULL AND secret_hash IS NOT NULL"
+                          ).fetchone()[0]
+    return {"head": svc.head(conn), "entries": counts, "redacted": redacted, "active_keys": active,
+            "policy": policy.sha256 if policy else None, "setup_needed": policy is None}
 
-    def keys_list(self) -> None:
-        rows = self.conn.execute("SELECT * FROM keys ORDER BY created_at").fetchall()
-        if not rows:
-            self.out("no keys")
-        for r in rows:
-            state = f"revoked {r['revoked_at']}" if r["revoked_at"] else "active"
-            self.out(f"{r['key_id']:<20} {r['voice']:<6} {state:<36} "
-                     f"last used {r['last_used_at'] or 'never':<28} {r['label'] or ''}")
 
-    def verify(self) -> bool:
-        problems = core.verify(self.conn)
-        self.out("chain verifies" if not problems else "\n".join(problems))
-        return not problems
+def _row(r) -> dict:
+    return {"id": svc.short(r["id"]), "seq": r["seq"], "ts": r["ts"][:19] + "Z", "voice": r["voice"],
+            "subject": r["subject"], "kind": r["kind"], "pinned": bool(r["pinned"]),
+            "excerpt": r["excerpt"], "redacted": r["redacted_at"] is not None,
+            "untrusted_ctx": r["untrusted_ctx"]}
 
-    def export(self, out_path: str) -> None:
-        head_id = core.export_jsonl(self.conn, out_path)
-        self.out(f"exported to {out_path}; head {head_id}")
 
-    def policy_status(self) -> bool:
-        policy = load_policy(self.s.policy_path)
-        approved = svc.approved_policy_hash(self.conn, self.s.server_name, self.s.admin_address)
-        self.out(f"policy file  {policy.sha256}")
-        self.out(f"approved     {approved or 'none'}")
-        ok = approved == policy.sha256
-        self.out("the server will load this policy" if ok else
-                 "the server will refuse this policy until `policy reload` is signed")
-        return ok
+def subjects(conn) -> list[dict]:
+    return [{"subject": r["subject"], "count": r["n"], "latest": r["latest"][:19] + "Z"}
+            for r in conn.execute(
+                "SELECT subject, COUNT(*) AS n, MAX(ts) AS latest FROM entries WHERE kind != 'redaction' "
+                "GROUP BY subject ORDER BY subject LIMIT ?", (SUBJECTS_MAX,))]
 
-    # -- signed
 
-    def keys_mint(self, voice: str, label: str) -> None:
-        if voice != "code":
+def entries(conn, *, subject: str | None = None, query: str | None = None,
+            before: int | None = None, limit: int = 50) -> dict:
+    """Newest first. The admin sees every entry, redacted ones included (without content).
+    Admin browsing is not deliberate use by a voice, so it never reinforces salience."""
+    limit = max(1, min(int(limit), LIST_MAX))
+    where, args = ["1 = 1"], []
+    if subject:
+        if subject.endswith("/**"):
+            base = subject[:-3]
+            where.append("(e.subject = ? OR substr(e.subject, 1, ?) = ?)")
+            args += [base, len(base) + 1, base + "/"]
+        else:
+            where.append("e.subject = ?")
+            args.append(subject)
+    if before is not None:
+        where.append("e.seq < ?")
+        args.append(int(before))
+    if query:
+        sql = ("SELECT e.* FROM entries_fts JOIN entries e ON e.seq = entries_fts.rowid "
+               f"WHERE entries_fts MATCH ? AND {' AND '.join(where)} ORDER BY e.seq DESC LIMIT ?")
+        args = [svc._fts_query(query), *args]
+    else:
+        sql = f"SELECT e.* FROM entries e WHERE {' AND '.join(where)} ORDER BY e.seq DESC LIMIT ?"
+    rows = conn.execute(sql, (*args, limit + 1)).fetchall()
+    more = len(rows) > limit
+    rows = rows[:limit]
+    return {"entries": [_row(r) for r in rows], "next_before": rows[-1]["seq"] if more else None}
+
+
+def entry(conn, ref: str) -> dict:
+    row = conn.execute("SELECT * FROM entries WHERE id = ?", (svc.resolve_id(conn, ref),)).fetchone()
+    entry_id = row["id"]
+    out = _row(row)
+    out.update(id=entry_id, key_id=row["key_id"], prev=svc.short(row["prev_hash"]),
+               supersedes=svc.short(row["supersedes"]),
+               refs=[svc.short(x) for x in json.loads(row["refs"])],
+               superseded_by=[svc.short(r[0]) for r in conn.execute(
+                   "SELECT id FROM entries WHERE supersedes = ? ORDER BY seq", (entry_id,))],
+               cited_by=[svc.short(r[0]) for r in conn.execute(
+                   "SELECT id FROM entries WHERE refs LIKE ? AND kind != 'redaction' ORDER BY seq LIMIT ?",
+                   (f'%"{entry_id}"%', LIST_MAX))])
+    if row["redacted_at"] is None:
+        out.update(keywords=json.loads(row["keywords"]), body=row["body"])
+    else:
+        rec = conn.execute("SELECT * FROM redactions WHERE entry_id = ?", (entry_id,)).fetchone()
+        out.update(redacted_at=row["redacted_at"],
+                   redaction={"reason": rec["reason"], "tombstone": svc.short(rec["tombstone_id"])}
+                   if rec else None)
+    return out
+
+
+def admin_log(conn, limit: int = LIST_MAX) -> list[dict]:
+    return [{"at": r["at"][:19] + "Z", "event": r["event"], "action": json.loads(r["action"]),
+             "signer": r["signer"], "detail": r["detail"]}
+            for r in conn.execute("SELECT * FROM admin_log ORDER BY log_id DESC LIMIT ?",
+                                  (max(1, min(int(limit), LIST_MAX)),))]
+
+
+def policy_state(conn, settings: Settings, policy: Policy | None) -> dict:
+    """The approved policy text, or the first draft to start from when none is approved."""
+    if policy is not None:
+        return {"approved": {"sha256": policy.sha256, "body": svc.policy_body(conn, policy.sha256)}}
+    try:
+        with open(settings.policy_path, encoding="utf-8") as f:
+            draft = f.read()
+    except OSError:
+        draft = ""
+    return {"approved": None, "draft": draft}
+
+
+def policy_check(conn, body, policy: Policy | None) -> dict:
+    """Validate a policy text without storing it, and show what would change."""
+    if not isinstance(body, str):
+        raise Refused("the policy must be text")
+    try:
+        candidate = svc.parse_policy(body.encode("utf-8"))
+    except PolicyError as e:
+        return {"valid": False, "error": str(e)}
+    diff = ""  # with nothing approved yet, the whole text is the change; no diff to show
+    if policy is not None:
+        current = svc.policy_body(conn, policy.sha256)
+        diff = "".join(difflib.unified_diff(current.splitlines(keepends=True), body.splitlines(keepends=True),
+                                            "approved", "proposed"))
+    return {"valid": True, "sha256": candidate.sha256,
+            "unchanged": policy is not None and candidate.sha256 == policy.sha256, "diff": diff}
+
+
+def verify(conn) -> list[str]:
+    return core.verify(conn)
+
+
+# ---------------------------------------------------------------- signed commands
+
+def _active_key(conn, key_id):
+    row = conn.execute("SELECT * FROM keys WHERE key_id = ?", (key_id,)).fetchone() \
+        if isinstance(key_id, str) else None
+    if row is None:
+        raise Refused(f"no key {key_id}")
+    if row["revoked_at"] is not None:
+        raise Refused(f"key {key_id} is already revoked")
+    if row["secret_hash"] is None:
+        raise Refused(f"key {key_id} is not a bearer key")
+    return row
+
+
+def _redact_target(conn, policy: Policy | None, ref):
+    if policy is None:
+        raise Refused("approve a policy first")
+    try:
+        row = conn.execute("SELECT * FROM entries WHERE id = ?", (svc.resolve_id(conn, ref),)).fetchone()
+    except svc.ServiceError as e:
+        raise Refused(str(e)) from None
+    decision = policy.check_redact("admin", row)
+    if not decision:
+        raise Refused(decision.reason)
+    return row
+
+
+def prepare(conn, settings: Settings, policy: Policy | None, request: dict,
+            drafts: PolicyDrafts = DRAFTS) -> str:
+    """Turn the admin's request into the exact message their wallet will sign.
+    Everything that can be checked now is checked now, so the admin never signs
+    something that is bound to fail."""
+    if not isinstance(request, dict):
+        raise Refused("bad request")
+    kind = request.get("action")
+    if kind == "keys.mint":
+        if request.get("voice", "code") != "code":
             raise Refused("only code keys are minted here; the brain is granted by wallet sign-in")
-        label = plain_text(label, "a key label")
-        minted = {}
+        action = {"action": "keys.mint", "voice": "code",
+                  "label": plain_text(request.get("label"), "a key label", LABEL_MAX)}
+    elif kind == "keys.revoke":
+        action = {"action": "keys.revoke", "key_id": _active_key(conn, request.get("key_id"))["key_id"]}
+    elif kind == "keys.rotate":
+        old = _active_key(conn, request.get("key_id"))
+        label = request.get("label") or old["label"] or f"rotated from {old['key_id']}"
+        action = {"action": "keys.rotate", "key_id": old["key_id"],
+                  "label": plain_text(label, "a key label", LABEL_MAX)}
+    elif kind == "redact":
+        row = _redact_target(conn, policy, request.get("id"))
+        action = {"action": "redact", "id": row["id"],
+                  "reason": plain_text(request.get("reason"), "a reason", REASON_MAX)}
+    elif kind == "policy.approve":
+        body = request.get("body")
+        if not isinstance(body, str):
+            raise Refused("the policy must be text")
+        try:
+            candidate = svc.parse_policy(body.encode("utf-8"))
+        except PolicyError as e:
+            raise Refused(f"the policy is not valid: {e}") from None
+        if policy is not None and candidate.sha256 == policy.sha256:
+            raise Refused("that is already the approved policy")
+        drafts.put(candidate.sha256, body)
+        action = {"action": "policy.approve", "sha256": candidate.sha256}
+    else:
+        raise Refused(f"unknown action {kind!r}")
+    ttl = policy.command_ttl_seconds if policy else admin_auth.TTL_SECONDS
+    return admin_auth.prepare(conn, settings.server_name, action, ttl_seconds=ttl)
 
-        def perform(a):
-            self.conn.execute("BEGIN IMMEDIATE")
-            try:
-                minted["id"], minted["secret"] = svc.mint_key_in_tx(self.conn, a["voice"], a["label"])
-                self.conn.execute("COMMIT")
-            except BaseException:
-                self.conn.execute("ROLLBACK")
-                raise
-            return f"minted {minted['id']}"
 
-        self.signed({"action": "keys.mint", "voice": voice, "label": label}, perform)
-        self._show_secret(minted["id"], minted["secret"])
+def confirm(conn, settings: Settings, policy: Policy | None, message: str, signature: str,
+            drafts: PolicyDrafts = DRAFTS) -> dict:
+    """Check the signature, perform exactly the signed action, log the outcome."""
+    if not isinstance(message, str) or not isinstance(signature, str):
+        raise Refused("bad request")
+    body = None
+    try:
+        signed = admin_auth.parse_message(message)["action"]
+        if signed.get("action") == "policy.approve":
+            # Checked before the nonce is spent: an approval is only ever logged for text we hold.
+            body = drafts.get(signed.get("sha256"))
+            if body is None:
+                raise Refused("this policy draft was replaced or has expired; check and approve it again")
+        action = admin_auth.authorize(conn, settings.server_name, settings.admin_address, message, signature)
+    except (admin_auth.AdminAuthError, ValueError) as e:
+        raise Refused(f"refused: {e}. Nothing was changed.") from None
+    try:
+        if body is not None:
+            svc.store_policy_version(conn, body)
+            drafts.clear(action["sha256"])
+        result, detail = _perform(conn, settings, policy, action)
+    except Exception as e:
+        admin_auth.log_outcome(conn, message, ok=False, detail=str(e))
+        if isinstance(e, (Refused, svc.ServiceError, PolicyError, core.AIngramError)):
+            raise Refused(f"failed: {e}") from None
+        raise
+    admin_auth.log_outcome(conn, message, ok=True, detail=detail)
+    return result
 
-    def keys_revoke(self, key_id: str) -> None:
-        self._active_key(key_id)
 
-        def perform(a):
-            self._active_key(a["key_id"])
-            core.revoke_key(self.conn, a["key_id"])
-            return f"revoked {a['key_id']}"
+def _in_tx(conn, fn):
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        out = fn()
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    return out
 
-        self.signed({"action": "keys.revoke", "key_id": key_id}, perform)
-        self.out(f"revoked {key_id}")
 
-    def keys_rotate(self, key_id: str, label: str | None) -> None:
-        old = self._active_key(key_id)
-        label = plain_text(label or old["label"] or f"rotated from {key_id}", "a key label")
-        minted = {}
+def _perform(conn, settings: Settings, policy: Policy | None, a: dict) -> tuple[dict, str]:
+    kind = a["action"]
+    if kind == "keys.mint":
+        key_id, secret = _in_tx(conn, lambda: svc.mint_key_in_tx(conn, a["voice"], a["label"]))
+        return {"key_id": key_id, "secret": secret}, f"minted {key_id}"
+    if kind == "keys.revoke":
+        _active_key(conn, a["key_id"])
+        core.revoke_key(conn, a["key_id"])
+        return {"revoked": a["key_id"]}, f"revoked {a['key_id']}"
+    if kind == "keys.rotate":
+        def rotate():
+            row = _active_key(conn, a["key_id"])
+            minted = svc.mint_key_in_tx(conn, row["voice"], a["label"])
+            core.revoke_key(conn, a["key_id"])
+            return minted
+        key_id, secret = _in_tx(conn, rotate)
+        return ({"revoked": a["key_id"], "key_id": key_id, "secret": secret},
+                f"rotated {a['key_id']} -> {key_id}")
+    if kind == "redact":
+        _redact_target(conn, policy, a["id"])
+        key_id = svc.ensure_admin_key(conn, settings.admin_address)
+        result = svc.redact(conn, policy, key_id, a["id"], a["reason"])
+        return result, f"redacted {a['id']}, tombstone {result['tombstone']}"
+    if kind == "policy.approve":
+        body = svc.policy_body(conn, a["sha256"])
+        if body is None:
+            raise Refused("that policy text is not on this server")
+        svc.parse_policy(body.encode("utf-8"))
+        return {"approved": a["sha256"]}, f"approved policy {a['sha256']}"
+    raise Refused(f"unknown action {kind!r}")
 
-        def perform(a):
-            self.conn.execute("BEGIN IMMEDIATE")
-            try:
-                row = self._active_key(a["key_id"])
-                minted["id"], minted["secret"] = svc.mint_key_in_tx(self.conn, row["voice"], a["label"])
-                core.revoke_key(self.conn, a["key_id"])
-                self.conn.execute("COMMIT")
-            except BaseException:
-                self.conn.execute("ROLLBACK")
-                raise
-            return f"rotated {a['key_id']} -> {minted['id']}"
 
-        self.signed({"action": "keys.rotate", "key_id": key_id, "label": label}, perform)
-        self.out(f"revoked {key_id}")
-        self._show_secret(minted["id"], minted["secret"])
-
-    def redact(self, ref: str, reason: str) -> None:
-        reason = plain_text(reason, "a redaction reason")
-        entry_id = svc.resolve_id(self.conn, ref)
-        policy = load_policy(self.s.policy_path)
-        row = self.conn.execute("SELECT * FROM entries WHERE id = ?", (entry_id,)).fetchone()
-        decision = policy.check_redact("admin", row)
-        if not decision:
-            raise Refused(decision.reason)
-        result = {}
-
-        def perform(a):
-            key_id = svc.ensure_admin_key(self.conn, self.s.admin_address)
-            result.update(svc.redact(self.conn, policy, key_id, a["id"], a["reason"]))
-            return f"redacted {a['id']}, tombstone {result['tombstone']}"
-
-        self.signed({"action": "redact", "id": entry_id, "reason": reason}, perform)
-        self.out(f"redacted {entry_id}; tombstone {result['tombstone']}")
-        if result["flagged_for_review"]:
-            self.out("flagged for review: " + " ".join(result["flagged_for_review"]))
-
-    def policy_reload(self) -> None:
-        policy = load_policy(self.s.policy_path)  # refuses an invalid file before anything is signed
-        # The signature covers a hash, so show the admin the exact bytes it stands for.
-        self.out(f"Policy file {self.s.policy_path}, sha256 {policy.sha256}:\n")
-        self.out(open(self.s.policy_path, encoding="utf-8").read())
-        self.out("--- end of policy file ---\n")
-
-        def perform(a):
-            current = load_policy(self.s.policy_path)
-            if current.sha256 != a["sha256"]:
-                raise Refused("policy file changed while waiting for the signature")
-            return f"approved policy {a['sha256']}"
-
-        self.signed({"action": "policy.reload", "sha256": policy.sha256}, perform)
-        self.out(f"approved policy {policy.sha256}; the running server picks it up on its next request")
-
-    # -- helpers
-
-    def _active_key(self, key_id: str):
-        row = self.conn.execute("SELECT * FROM keys WHERE key_id = ?", (key_id,)).fetchone()
-        if row is None:
-            raise Refused(f"no key {key_id}")
-        if row["revoked_at"] is not None:
-            raise Refused(f"key {key_id} is already revoked")
-        if row["secret_hash"] is None:
-            raise Refused(f"key {key_id} is not a bearer key")
-        return row
-
-    def _show_secret(self, key_id: str, secret: str) -> None:
-        self.out(f"\nNew key {key_id}. The secret is shown once and is not stored:\n\n    {secret}\n")
-        self.out("Put it in the client's connector configuration as `Authorization: Bearer <secret>`.")
-
+# ---------------------------------------------------------------- read-only CLI
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="aingram_admin", description="AIngram admin CLI (run on the server)")
+    p = argparse.ArgumentParser(
+        prog="aingram_admin",
+        description="AIngram read-only admin CLI. Changes are made, and signed, on the /admin page.")
     sub = p.add_subparsers(dest="cmd", required=True)
-    keys = sub.add_parser("keys").add_subparsers(dest="keys_cmd", required=True)
-    keys.add_parser("list")
-    mint = keys.add_parser("mint")
-    mint.add_argument("--voice", required=True, choices=["code"])
-    mint.add_argument("--label", required=True)
-    revoke = keys.add_parser("revoke")
-    revoke.add_argument("key_id")
-    rotate = keys.add_parser("rotate")
-    rotate.add_argument("key_id")
-    rotate.add_argument("--label")
+    sub.add_parser("keys").add_subparsers(dest="keys_cmd", required=True).add_parser("list")
     sub.add_parser("verify")
     export = sub.add_parser("export")
     export.add_argument("--out", required=True)
-    redact = sub.add_parser("redact")
-    redact.add_argument("id")
-    redact.add_argument("--reason", required=True)
-    policy = sub.add_parser("policy").add_subparsers(dest="policy_cmd", required=True)
-    policy.add_parser("reload")
-    policy.add_parser("status")
+    sub.add_parser("policy").add_subparsers(dest="policy_cmd", required=True).add_parser("status")
     return p
 
 
-def main(argv=None, ask=input, out=print, env=None) -> int:
+def main(argv=None, out=print, env=None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if env is None:
             load_env()
-        read_only = (args.cmd in ("verify", "export")
-                     or (args.cmd == "keys" and args.keys_cmd == "list"))
-        settings = Settings.from_env(env, need_admin=not read_only)
-        admin = Admin(settings, ask=ask, out=out)
+        settings = Settings.from_env(env, need_admin=args.cmd == "policy")
+        conn = core.connect(settings.db_path)
     except (ConfigError, core.AIngramError) as e:
         out(str(e))
         return 1
     try:
         if args.cmd == "keys":
-            {"list": admin.keys_list,
-             "mint": lambda: admin.keys_mint(args.voice, args.label),
-             "revoke": lambda: admin.keys_revoke(args.key_id),
-             "rotate": lambda: admin.keys_rotate(args.key_id, args.label)}[args.keys_cmd]()
+            rows = keys(conn)
+            if not rows:
+                out("no keys")
+            for r in rows:
+                state = f"revoked {r['revoked_at']}" if r["revoked_at"] else "active"
+                out(f"{r['key_id']:<20} {r['voice']:<6} {state:<36} "
+                    f"last used {r['last_used_at'] or 'never':<28} {r['label'] or ''}")
         elif args.cmd == "verify":
-            return 0 if admin.verify() else 1
+            problems = verify(conn)
+            out("chain verifies" if not problems else "\n".join(problems))
+            return 0 if not problems else 1
         elif args.cmd == "export":
-            admin.export(args.out)
-        elif args.cmd == "redact":
-            admin.redact(args.id, args.reason)
+            out(f"exported to {args.out}; head {core.export_jsonl(conn, args.out)}")
         elif args.cmd == "policy":
-            if args.policy_cmd == "status":
-                return 0 if admin.policy_status() else 1
-            admin.policy_reload()
+            policy = svc.load_approved_policy(conn, settings.server_name, settings.admin_address)
+            if policy is None:
+                out("no policy approved yet: sign in at /admin to approve one")
+                return 1
+            out(f"approved policy {policy.sha256}")
         return 0
-    except (Refused, PolicyError, core.AIngramError) as e:
+    except (PolicyError, core.AIngramError) as e:
         out(str(e))
         return 1
     finally:
-        admin.conn.close()
+        conn.close()
 
 
 if __name__ == "__main__":

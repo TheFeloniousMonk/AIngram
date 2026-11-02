@@ -1,18 +1,18 @@
 """Signed admin commands for AIngram.
 
-Shell access to the server is the way in; the admin wallet is the authority.
-Flow, run by the ssh admin tool:
+The admin wallet is the authority, not a session and not a shell.
+Flow, driven by the admin web page:
 
   1. prepare(conn, server, action)  -> a message, with a fresh nonce stored on the box
-  2. The admin signs that exact message on their own machine (EIP-191 personal_sign:
-     `cast wallet sign "<message>"`, or any browser wallet) and pastes the signature back
+  2. The page asks the admin's wallet to sign that exact message (EIP-191
+     personal_sign); the wallet shows the admin every line of it first
   3. authorize(conn, server, admin_address, message, signature) -> the action,
      only if: the signer is the admin address, the nonce was issued here,
      is unused and unexpired, and the server name matches.
      The nonce is spent and the authorization logged in one transaction.
-  4. the tool performs the action, then log_outcome(...) records done/failed.
+  4. the server performs the action, then log_outcome(...) records done/failed.
 
-A shell alone can't do step 3. Neither can Code, and neither can the brain.
+A signed-in session alone can't do step 3. Neither can a shell, Code, or the brain.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ import aingram_core as core
 
 HEADER = "AIngram admin command"
 TTL_SECONDS = 600
-ACTIONS = {"keys.mint", "keys.revoke", "keys.rotate", "redact", "policy.reload"}
+ACTIONS = {"keys.mint", "keys.revoke", "keys.rotate", "redact", "policy.approve"}
 
 
 class AdminAuthError(core.AIngramError):
