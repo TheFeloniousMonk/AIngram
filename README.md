@@ -66,7 +66,7 @@ Sessions end after 30 minutes idle, 8 hours after sign-in, or at sign-out.
 
 ## Importing existing memory
 
-To bring in memory you already have (a Claude project's files, notes, logs), have the brain write an import file, then upload it on the admin page's **Import** tab. Every line is checked the way a live write by the brain is, and the page previews what will land: counts by subject and kind, what is pinned, and any problems. Nothing is written until you approve the whole file in your wallet; then it all lands at once, or none of it does. Entries are written as the brain under an import key (listed under Keys, not a credential). The daily write cap doesn't apply, because your signature over that exact file stands in for it.
+To bring in memory you already have (a Claude project's files, notes, logs), have the brain write an import file, then upload it on the admin page's **Import** tab. Every line is checked the way a live write by the brain is, and the page previews what will land: counts by subject and kind, what is pinned, and any problems. Nothing is written until you approve the whole file in your wallet; then it all lands at once, or none of it does, and a failure names its line. Entries are written as the brain under an import key (listed under Keys, not a credential), so pinned entries join the brain's core and `untrusted_ctx` stays as provenance. Imports don't count against the daily write cap, at the time or for the rest of the day, because your signature over that exact file stands in for it.
 
 The file has one JSON object per line:
 
@@ -80,7 +80,7 @@ The file has one JSON object per line:
 | `body` | optional | The full text |
 | `pinned` | optional | `true` puts it in the brain's core, shown at every boot |
 | `untrusted_ctx` | optional | Where outside text came from, if any was involved, e.g. `meadow`, `web` |
-| `date` | optional | `YYYY-MM-DD` it was originally written. It sets the entry's decay clock, so an old breadcrumb arrives already faded |
+| `date` | optional | `YYYY-MM-DD` it was originally written. It sets the entry's decay clock (an old breadcrumb arrives already faded), how it is shown, and where it sorts in the recent tail and a subject's view. Its place in the chain doesn't change, and the date is also kept as a `dated:` keyword |
 
 ```json
 {"subject": "self/name", "kind": "fact", "excerpt": "I am Qlaude.", "pinned": true, "source": "overview.md"}

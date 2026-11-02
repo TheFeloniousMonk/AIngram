@@ -126,11 +126,47 @@ class Applying(Import):
         hits = svc.recall(self.conn, self.policy, "brain", query="session notes")["hits"]
         self.assertTrue(hits[0]["faded"])
 
-    def test_the_daily_cap_does_not_apply(self):
+    def test_the_daily_cap_does_not_apply_then_or_after(self):
+        cap = self.policy.voices["brain"].daily_write_cap
         many = jsonl(*({"subject": "bulk", "kind": "fact", "excerpt": f"n{i}", "source": "bulk.md"}
-                       for i in range(self.policy.voices["brain"].daily_write_cap + 5)))
-        self.assertEqual(self.signed({"action": "import.apply", "body": many})["imported"],
-                         self.policy.voices["brain"].daily_write_cap + 5)
+                       for i in range(cap + 5)))
+        self.assertEqual(self.signed({"action": "import.apply", "body": many})["imported"], cap + 5)
+        # The brain's own writing for the day is untouched by the import.
+        self.assertEqual(self.policy.headroom(self.conn, "brain"), cap)
+        core.add_key(self.conn, key_id="k_brain_live", voice="brain")
+        svc.write(self.conn, self.policy, "k_brain_live", subject="misc", kind="fact", excerpt="after the import")
+        self.assertEqual(self.policy.headroom(self.conn, "brain"), cap - 1)
+
+    def test_dates_set_display_and_order_but_not_chain_position(self):
+        core.add_key(self.conn, key_id="k_brain_live", voice="brain")
+        today = svc.write(self.conn, self.policy, "k_brain_live", subject="breadcrumbs", kind="breadcrumb",
+                          excerpt="tonight's thread")["id"]
+        week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+        self.signed({"action": "import.apply", "body": jsonl(
+            {"subject": "breadcrumbs", "kind": "breadcrumb", "excerpt": "last week's thread", "date": week_ago,
+             "source": "breadcrumbs.md"})})
+        rows = self.entries()
+        self.assertEqual([r["excerpt"] for r in rows[-2:]], ["tonight's thread", "last week's thread"])  # chain order
+        tail = svc.boot(self.conn, self.policy, "brain")["recent"]
+        self.assertEqual([t["excerpt"] for t in tail], ["tonight's thread", "last week's thread"])  # by date
+        self.assertEqual(tail[1]["date"], week_ago)
+        hit = svc.recall(self.conn, self.policy, "brain", subject="breadcrumbs")["hits"]
+        self.assertEqual([h["id"] for h in hit][0], today)
+        self.assertEqual(hit[1]["dated"], week_ago)
+        imported = svc.read(self.conn, self.policy, "brain", hit[1]["id"])
+        self.assertEqual(imported["dated"], week_ago)
+        self.assertIn(f"dated:{week_ago}", imported["keywords"])  # kept in the chain and its exports
+        self.assertTrue(imported["ts"].startswith(datetime.now(timezone.utc).strftime("%Y-%m-%d")))  # ts untouched
+        self.assertIsNone(svc.read(self.conn, self.policy, "brain", today)["dated"])
+        self.assertEqual(core.verify(self.conn), [])
+
+    def test_pins_reach_the_core_and_sources_survive(self):
+        self.signed({"action": "import.apply", "body": jsonl(
+            {"subject": "self/core", "kind": "fact", "excerpt": "who I am", "pinned": True, "source": "o.md",
+             "untrusted_ctx": ["web", "meadow"]})})
+        boot = svc.boot(self.conn, self.policy, "brain")
+        self.assertEqual([c["excerpt"] for c in boot["core"]], ["who I am"])
+        self.assertEqual(self.entries()[-1]["untrusted_ctx"], "meadow,web")
 
     def test_wrong_wallet_imports_nothing(self):
         with self.assertRaisesRegex(admin.Refused, "Nothing was changed"):
@@ -150,7 +186,7 @@ class Applying(Import):
         # A failure partway through (here: a subject the store itself refuses) leaves nothing behind.
         records, _ = admin.parse_import(GOOD, self.policy)
         records[2]["subject"] = ""
-        with self.assertRaises(core.AIngramError):
+        with self.assertRaisesRegex(admin.Refused, r"^line 3: .*Nothing was imported"):
             admin.apply_import(self.conn, self.policy, records, {"entries": len(records)})
         self.assertEqual(self.entries(), [])
         self.assertIsNone(self.conn.execute("SELECT 1 FROM keys WHERE key_id LIKE 'k_brain_imp_%'").fetchone())

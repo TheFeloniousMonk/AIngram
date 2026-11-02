@@ -97,11 +97,21 @@ def _readable_ids(conn, policy: Policy, voice: str, ids) -> list[str]:
     return out
 
 
+# Imported entries carry their original date in entry_dates. Views show and order by it;
+# the chain's ts (when the entry entered this log) is untouched.
+DATES_JOIN = "LEFT JOIN entry_dates d ON d.entry_id = e.id"
+WHEN = "COALESCE(d.dated || 'T00:00:00.000000Z', e.ts)"  # order by this, newest first
+
+
+def _dated(row) -> str | None:
+    return row["dated"] if "dated" in row.keys() else None
+
+
 def _tail_item(row) -> dict:
     """A boot tail line. Every tail entry is the booting voice's own, so no voice field,
     and the day is enough to place it."""
     out = {"id": short(row["id"]), "subject": row["subject"], "kind": row["kind"],
-           "date": row["ts"][:10], "excerpt": row["excerpt"]}
+           "date": _dated(row) or row["ts"][:10], "excerpt": row["excerpt"]}
     if row["untrusted_ctx"]:
         out["untrusted_ctx"] = row["untrusted_ctx"]
     return out
@@ -110,6 +120,8 @@ def _tail_item(row) -> dict:
 def _hit(row, faded: bool = False) -> dict:
     out = {"id": short(row["id"]), "subject": row["subject"], "kind": row["kind"],
            "ts": row["ts"][:19] + "Z", "voice": row["voice"], "excerpt": row["excerpt"]}
+    if _dated(row):
+        out["dated"] = _dated(row)  # originally written then; ts is when it entered this log
     if row["untrusted_ctx"]:
         out["untrusted_ctx"] = row["untrusted_ctx"]
     if faded:
@@ -357,6 +369,7 @@ def read(conn, policy: Policy, voice: str, ref: str, now: datetime | None = None
         "id": entry_id, "seq": row["seq"], "ts": row["ts"], "voice": row["voice"],
         "key_id": row["key_id"], "subject": row["subject"], "kind": row["kind"],
         "pinned": bool(row["pinned"]), "untrusted_ctx": row["untrusted_ctx"],
+        "dated": (conn.execute("SELECT dated FROM entry_dates WHERE entry_id = ?", (entry_id,)).fetchone() or [None])[0],
         "prev": link(row["prev_hash"]), "supersedes": link(row["supersedes"]),
         "superseded_by": superseded_by, "refs": _readable_ids(conn, policy, voice, json.loads(row["refs"])),
     }
@@ -396,7 +409,7 @@ def recall(conn, policy: Policy, voice: str, *, subject: str | None = None, quer
     limit = min(limit, policy.limits["recall_max"])
     reserved = tuple(policy.reserved_kinds)
     live = f"{LIVE.format(t='e')} AND e.kind NOT IN ({','.join('?' * len(reserved))})"
-    cols = "e.*, s.last_reinforced_at AS s_last, s.half_life_days AS s_hl"
+    cols = "e.*, s.last_reinforced_at AS s_last, s.half_life_days AS s_hl, d.dated AS dated"
     if subject is not None:
         subtree = subject.endswith("/**")
         base = subject[:-3] if subtree else subject
@@ -404,12 +417,13 @@ def recall(conn, policy: Policy, voice: str, *, subject: str | None = None, quer
             where, args = "(e.subject = ? OR substr(e.subject, 1, ?) = ?)", (base, len(base) + 1, base + "/")
         else:
             where, args = "e.subject = ?", (base,)
-        sql = f"SELECT {cols} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id WHERE {where} AND {live}"
-        order = "e.seq DESC"
+        sql = (f"SELECT {cols} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id {DATES_JOIN} "
+               f"WHERE {where} AND {live}")
+        order = f"{WHEN} DESC, e.seq DESC"
         mode, pool = "subject", limit
     else:
         sql = (f"SELECT {cols}, bm25(entries_fts) AS rank FROM entries_fts "
-               f"JOIN entries e ON e.seq = entries_fts.rowid LEFT JOIN salience s ON s.entry_id = e.id "
+               f"JOIN entries e ON e.seq = entries_fts.rowid LEFT JOIN salience s ON s.entry_id = e.id {DATES_JOIN} "
                f"WHERE entries_fts MATCH ? AND {live}")
         args = (_fts_query(query),)
         order = "bm25(entries_fts)"
@@ -450,9 +464,9 @@ def boot(conn, policy: Policy, voice: str, now: datetime | None = None) -> dict:
                            f"ORDER BY e.seq", reserved)]
         # Faded entries drop out of the tail; they stay in the log and in recall.
         out["recent"] = [_tail_item(r) for r in conn.execute(
-            f"SELECT e.* FROM entries e LEFT JOIN salience s ON s.entry_id = e.id "
+            f"SELECT e.*, d.dated AS dated FROM entries e LEFT JOIN salience s ON s.entry_id = e.id {DATES_JOIN} "
             f"WHERE e.voice = 'brain' AND e.pinned = 0 AND {live} AND {NOT_FADED} "
-            f"ORDER BY e.seq DESC LIMIT ?", (*reserved, fade_factor(policy), _iso(now), tail_n))]
+            f"ORDER BY {WHEN} DESC, e.seq DESC LIMIT ?", (*reserved, fade_factor(policy), _iso(now), tail_n))]
         out["code_digest"] = _digest(conn, since)
         if policy.boot["redaction_notice"]:
             n = conn.execute("SELECT COUNT(*) FROM entries WHERE kind = 'redaction' AND seq > ?",
@@ -467,8 +481,8 @@ def boot(conn, policy: Policy, voice: str, now: datetime | None = None) -> dict:
             (_iso(now), last_seq))
     else:
         out["recent"] = [_tail_item(r) for r in conn.execute(
-            f"SELECT e.* FROM entries e LEFT JOIN salience s ON s.entry_id = e.id "
-            f"WHERE e.voice = ? AND {live} AND {NOT_FADED} ORDER BY e.seq DESC LIMIT ?",
+            f"SELECT e.*, d.dated AS dated FROM entries e LEFT JOIN salience s ON s.entry_id = e.id {DATES_JOIN} "
+            f"WHERE e.voice = ? AND {live} AND {NOT_FADED} ORDER BY {WHEN} DESC, e.seq DESC LIMIT ?",
             (voice, *reserved, fade_factor(policy), _iso(now), tail_n))]
 
     out["writes_left_today"] = policy.headroom(conn, voice, now)

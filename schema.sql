@@ -158,6 +158,25 @@ CREATE TABLE IF NOT EXISTS salience (
     reinforcements     INTEGER NOT NULL DEFAULT 0
 );
 
+-- Original dates of imported entries, deliberately outside the chain (like salience):
+-- an entry's ts is when it entered this log; dated is when it was first written
+-- elsewhere. Views show and order by dated where there is one. The date is also kept
+-- as a dated:YYYY-MM-DD keyword, so the chain and its exports preserve it.
+CREATE TABLE IF NOT EXISTS entry_dates (
+    entry_id TEXT PRIMARY KEY REFERENCES entries(id),
+    dated    TEXT NOT NULL CHECK (length(dated) = 10)
+);
+
+CREATE TRIGGER IF NOT EXISTS entry_dates_no_delete BEFORE DELETE ON entry_dates
+BEGIN
+    SELECT RAISE(ABORT, 'entry dates are never deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS entry_dates_no_update BEFORE UPDATE ON entry_dates
+BEGIN
+    SELECT RAISE(ABORT, 'entry dates are never changed');
+END;
+
 -- Per-voice boot bookkeeping ("since you last woke").
 CREATE TABLE IF NOT EXISTS voice_state (
     voice         TEXT PRIMARY KEY CHECK (voice IN ('brain', 'code', 'admin')),

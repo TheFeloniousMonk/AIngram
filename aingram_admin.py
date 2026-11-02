@@ -19,6 +19,7 @@ import hashlib
 import json
 import re
 import secrets
+import sqlite3
 import sys
 import threading
 import unicodedata
@@ -28,7 +29,7 @@ import admin_auth
 import aingram_core as core
 import aingram_service as svc
 from aingram_config import ConfigError, Settings, load_env
-from aingram_policy import Policy, PolicyError, canonical_ctx
+from aingram_policy import IMPORT_KEY_PREFIX, Policy, PolicyError, canonical_ctx
 
 LIST_MAX = 100
 SUBJECTS_MAX = 1000
@@ -106,7 +107,7 @@ def overview(conn, policy: Policy | None) -> dict:
     latest = {}
     for voice in ("brain", "code"):
         row = conn.execute(
-            f"SELECT {SALIENCE_COLS} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id "
+            f"SELECT {SALIENCE_COLS} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id {DATED} "
             "WHERE e.voice = ? AND e.kind != 'redaction' AND e.redacted_at IS NULL ORDER BY e.seq DESC LIMIT 1",
             (voice,)).fetchone()
         latest[voice] = {**_row(row), "id_full": row["id"]} if row else None
@@ -118,7 +119,9 @@ def overview(conn, policy: Policy | None) -> dict:
     return out
 
 
-SALIENCE_COLS = "e.*, s.last_reinforced_at AS s_last, s.half_life_days AS s_hl"
+SALIENCE_COLS = "e.*, s.last_reinforced_at AS s_last, s.half_life_days AS s_hl, d.dated AS dated"
+# Every query using SALIENCE_COLS joins salience as s and entry_dates as d.
+DATED = "LEFT JOIN entry_dates d ON d.entry_id = e.id"
 
 
 def _row(r, now: datetime | None = None) -> dict:
@@ -128,6 +131,8 @@ def _row(r, now: datetime | None = None) -> dict:
            "untrusted_ctx": r["untrusted_ctx"]}
     if r["redacted_at"] is None and "s_last" in r.keys():
         out["salience"] = round(svc.salience_of(r["s_last"], r["s_hl"], now or datetime.now(timezone.utc)), 2)
+    if "dated" in r.keys() and r["dated"]:
+        out["dated"] = r["dated"]  # imported: originally written then
     return out
 
 
@@ -136,7 +141,7 @@ def faded(conn, policy: Policy, now: datetime | None = None, limit: int = LIST_M
     the weekly 'what fell below the line' the half-lives are tuned from."""
     now = now or datetime.now(timezone.utc)
     k = svc.fade_factor(policy)
-    base = (f"FROM entries e JOIN salience s ON s.entry_id = e.id "
+    base = (f"FROM entries e JOIN salience s ON s.entry_id = e.id {DATED} "
             f"WHERE {svc.LIVE.format(t='e')} AND e.kind != 'redaction' AND s.half_life_days IS NOT NULL "
             f"AND julianday(s.last_reinforced_at) + s.half_life_days * ? <= julianday(?)")
     rows = conn.execute(
@@ -175,7 +180,7 @@ def entries(conn, *, subject: str | None = None, query: str | None = None,
     if before is not None:
         where.append("e.seq < ?")
         args.append(int(before))
-    joined = "LEFT JOIN salience s ON s.entry_id = e.id"
+    joined = f"LEFT JOIN salience s ON s.entry_id = e.id {DATED}"
     if query:
         # Search as you type: every word matches as a prefix ("lisb" finds Lisbon), quoted
         # so nothing the admin types is parsed as FTS syntax.
@@ -194,7 +199,7 @@ def entries(conn, *, subject: str | None = None, query: str | None = None,
 
 
 def entry(conn, ref: str) -> dict:
-    row = conn.execute(f"SELECT {SALIENCE_COLS} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id "
+    row = conn.execute(f"SELECT {SALIENCE_COLS} FROM entries e LEFT JOIN salience s ON s.entry_id = e.id {DATED} "
                        "WHERE e.id = ?", (svc.resolve_id(conn, ref),)).fetchone()
     entry_id = row["id"]
     out = _row(row)
@@ -616,6 +621,9 @@ def parse_import(text, policy: Policy) -> tuple[list[dict], list[str]]:
             if len(rec["excerpt"]) > core.EXCERPT_MAX:
                 raise Refused(f"excerpt is {len(rec['excerpt'])} characters; max {core.EXCERPT_MAX}")
             rec["keywords"].append(f"migrated-from:{source}")
+            if rec["date"]:
+                rec["keywords"].append(f"dated:{rec['date']}")  # kept in the chain and its exports
+            rec["line"] = n
             for decision in (policy.check_write("brain", rec["subject"], rec["kind"], rec["pinned"], rec["untrusted_ctx"]),
                              policy.check_content(rec["excerpt"], rec["keywords"], rec["body"], ())):
                 if not decision:
@@ -655,26 +663,32 @@ def check_import(text, policy: Policy | None) -> dict:
 
 def apply_import(conn, policy: Policy | None, records, a: dict) -> tuple[dict, str]:
     """Write every record as the brain under a fresh import key, in one transaction:
-    all of it lands or none of it does. An entry's original date sets its decay clock,
-    so an old breadcrumb starts out as faded as it would be had it been written then.
-    The daily cap does not apply; the admin's signature over this exact file stands in for it."""
+    all of it lands or none of it does, and a failure names its line. An entry's original
+    date sets its decay clock and how it is shown and ordered (entry_dates), without
+    changing its place in the chain, so an old breadcrumb arrives as faded as it would be
+    had it been written then and sorts behind today's entries. The daily cap does not
+    apply, then or later: the admin's signature over this exact file stands in for it."""
     if policy is None:
         raise Refused("approve a policy first")
     if not records or len(records) != a["entries"]:
         raise Refused("the import draft does not match what was signed")
 
     def write_all():
-        key_id = f"k_brain_imp_{secrets.token_hex(4)}"
+        key_id = f"{IMPORT_KEY_PREFIX}{secrets.token_hex(4)}"
         core.add_key(conn, key_id=key_id, voice="brain",
                      label=f"import of {len(records)} entries, {datetime.now(timezone.utc):%Y-%m-%d}")
         for r in records:
-            done = core._append_in_tx(
-                conn, key_id=key_id, subject=r["subject"], kind=r["kind"], excerpt=r["excerpt"],
-                keywords=r["keywords"], body=r["body"], pinned=r["pinned"], untrusted_ctx=r["untrusted_ctx"],
-                half_life_days=policy.half_life_for(r["kind"], r["pinned"]))
+            try:
+                done = core._append_in_tx(
+                    conn, key_id=key_id, subject=r["subject"], kind=r["kind"], excerpt=r["excerpt"],
+                    keywords=r["keywords"], body=r["body"], pinned=r["pinned"], untrusted_ctx=r["untrusted_ctx"],
+                    half_life_days=policy.half_life_for(r["kind"], r["pinned"]))
+            except (core.AIngramError, sqlite3.Error) as e:
+                raise Refused(f"line {r.get('line', '?')}: {e}. Nothing was imported.") from None
             if r["date"]:
                 conn.execute("UPDATE salience SET last_reinforced_at = ? WHERE entry_id = ?",
                              (f"{r['date']}T00:00:00.000000Z", done["id"]))
+                conn.execute("INSERT INTO entry_dates (entry_id, dated) VALUES (?, ?)", (done["id"], r["date"]))
         return key_id
     key_id = _in_tx(conn, write_all)
     return {"imported": len(records), "key_id": key_id, "head": svc.head(conn)}, \

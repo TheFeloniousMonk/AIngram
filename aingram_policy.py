@@ -25,6 +25,7 @@ REDACT_MODES = ("own", "none", "any")
 KIND_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 CTX_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,31}$")
 CTX_MAX = 4
+IMPORT_KEY_PREFIX = "k_brain_imp_"  # keys that record an admin-approved import
 
 
 def canonical_ctx(value) -> tuple[str | None, str | None]:
@@ -213,8 +214,10 @@ class Policy:
     def writes_today(self, conn, voice: str, now: datetime | None = None) -> int:
         now = now or datetime.now(timezone.utc)
         day = now.strftime("%Y-%m-%dT00:00:00.000000Z")
-        return conn.execute("SELECT COUNT(*) FROM entries WHERE voice = ? AND ts >= ?",
-                            (voice, day)).fetchone()[0]
+        # Imports are approved by the admin wallet as a whole and never count against a voice's cap.
+        return conn.execute("SELECT COUNT(*) FROM entries WHERE voice = ? AND ts >= ? "
+                            "AND key_id NOT LIKE ? ESCAPE '\\'",
+                            (voice, day, IMPORT_KEY_PREFIX.replace("_", "\\_") + "%")).fetchone()[0]
 
     def headroom(self, conn, voice: str, now: datetime | None = None) -> int | None:
         cap = self.voices[voice].daily_write_cap

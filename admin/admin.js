@@ -189,7 +189,7 @@ async function overview() {
     const e = m.latest && m.latest[voice];
     return h("div", { class: "latest-one" },
       h("div", { class: "meta" }, h("span", { class: `dot ${voice}` }), label),
-      e ? [h("div", { class: "where muted small" }, `${e.subject} · ${e.kind} · ${day(e.ts)}`),
+      e ? [h("div", { class: "where muted small" }, `${e.subject} · ${e.kind} · ${day(e.dated || e.ts)}`),
            h("p", { class: "ex" }, e.excerpt),
            h("button", { class: "link", onclick: () => openInMemory(e.id) }, "Open in Memory →")]
         : h("p", { class: "muted" }, voice === "brain" ? "The brain hasn't written anything yet." : "Code hasn't written anything yet."));
@@ -281,7 +281,7 @@ function isFaded(e) {
 // "Nov 2" this year, "Nov 2, 2025" otherwise.
 function day(ts) {
   if (!ts) return "";
-  const d = new Date(ts.endsWith("Z") ? ts : ts + "Z");
+  const d = new Date(ts.length === 10 ? ts + "T00:00:00Z" : ts.endsWith("Z") ? ts : ts + "Z");
   const opts = { month: "short", day: "numeric", timeZone: "UTC" };
   if (d.getUTCFullYear() !== new Date().getUTCFullYear()) opts.year = "numeric";
   return d.toLocaleDateString(undefined, opts);
@@ -297,7 +297,7 @@ function item(e, when_) {
       e.pinned ? h("span", { class: "tag" }, "pinned") : null,
       e.untrusted_ctx ? h("span", { class: "tag warn" }, e.untrusted_ctx.split(",").join(", ")) : null,
       isFaded(e) && mem.mode !== "faded" ? h("span", { class: "tag" }, "faded") : null,
-      h("span", { class: "when" }, when_ || day(e.ts))),
+      h("span", { class: "when" }, when_ || day(e.dated || e.ts))),
     h("div", { class: "ex" }, e.redacted ? "Forgotten" : e.excerpt));
   node.dataset.id = e.id;
   return node;
@@ -386,7 +386,7 @@ async function select(id, { reading = true } = {}) {
     h("button", { class: "ghost back", onclick: () => $("inbox").classList.remove("reading") }, "← All entries"),
     h("div", { class: "subject" }, e.subject),
     h("h2", {}, e.redacted ? "Forgotten" : e.excerpt),
-    h("div", { class: "meta" }, h("span", { class: `dot ${e.voice}` }), `${e.voice} · ${e.kind} · ${when(e.ts)}`,
+    h("div", { class: "meta" }, h("span", { class: `dot ${e.voice}` }), `${e.voice} · ${e.kind} · ${e.dated ? `written ${day(e.dated)}, imported ${when(e.ts)}` : when(e.ts)}`,
       e.pinned ? h("span", { class: "tag" }, "pinned") : null,
       e.untrusted_ctx ? h("span", { class: "tag warn" }, `outside text: ${e.untrusted_ctx.split(",").join(", ")}`) : null,
       isFaded(e) ? h("span", { class: "tag" }, "faded") : null),
