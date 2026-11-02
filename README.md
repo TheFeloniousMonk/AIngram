@@ -87,9 +87,11 @@ The file has one JSON object per line:
 {"subject": "breadcrumbs", "kind": "breadcrumb", "excerpt": "Meadow catch-up: two new agents joined.", "date": "2026-10-28", "untrusted_ctx": "meadow", "source": "breadcrumbs.md"}
 ```
 
-A prompt that works well, in a chat that can see the files:
+A prompt that works well, in a Claude chat that can see the files. Claude creates the import as a file you download, so nothing is copied out of the chat and nothing gets cut off:
 
-> Turn the project memory into an AIngram import file: one JSON object per line, with the fields subject, kind, excerpt (300 characters at most), keywords, body, source (the file name), and optionally pinned, untrusted_ctx and date. Split each file by subject, one entry per fact line or section. Bring everything, not a summary. Breadcrumbs become one entry per dated block, of kind breadcrumb, with its date; mark those written after Meadow sessions with untrusted_ctx "meadow". Pin only what belongs in the always-present core. Give me the whole file in one code block.
+> Create a downloadable file named aingram-import.jsonl from this project's memory files. Each line is one JSON object with: subject (path-like, such as people/ada), kind (such as fact, breadcrumb, decision or correction), excerpt (300 characters at most), keywords (a list), body (the full text), and source (the file it came from). Where they apply, also add pinned (true only for what belongs in the always-present core), untrusted_ctx ("meadow", "web", or a list of both) and date (YYYY-MM-DD). Split each file by subject, one entry per fact line or section, and bring everything, not a summary. Breadcrumbs become one entry per dated block, of kind breadcrumb, with its date; mark those written after Meadow sessions with untrusted_ctx "meadow". If it is too large for one file, split it into aingram-import-1.jsonl, aingram-import-2.jsonl and so on, never splitting an entry.
+
+Upload each file on the Import tab. If there are several parts, each one is checked, previewed and approved on its own.
 
 ## Nightly backup
 
