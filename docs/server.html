@@ -57,13 +57,18 @@
   <table class="plain">
     <thead><tr><th>You need</th><th>Why</th></tr></thead>
     <tbody>
-      <tr><td data-label="You need"><strong>A small Linux server</strong></td><td data-label="Why">Claude connects to AIngram over the internet, so it has to live somewhere public. The smallest plan from most hosting companies is plenty. These guides use Ubuntu.</td></tr>
+      <tr><td data-label="You need"><strong>A small Linux server</strong></td><td data-label="Why">Claude connects to AIngram over the internet, so it has to live somewhere public. A virtual private server (VPS), where you can install software and run a program that stays on; the smallest plan most companies offer is plenty. These guides use Ubuntu.</td></tr>
       <tr><td data-label="You need"><strong>A web address</strong></td><td data-label="Why">A domain or subdomain you control, like <code>memory.example.com</code>, pointed at the server.</td></tr>
       <tr><td data-label="You need"><strong>HTTPS</strong></td><td data-label="Why">Claude only connects over HTTPS. A free certificate is set up for you in <a href="https.html">the HTTPS step</a>.</td></tr>
       <tr><td data-label="You need"><strong>Python 3.11 or newer</strong></td><td data-label="Why">AIngram is written in Python. Recent Ubuntu has it already.</td></tr>
       <tr><td data-label="You need"><strong>The admin's wallet address</strong></td><td data-label="Why">The <code>0x…</code> address of the wallet that will run the admin page. See <a href="wallet.html">Your wallet</a>.</td></tr>
     </tbody>
   </table>
+
+  <div class="notice warn"><span class="icon">!</span><div class="text">
+    <strong>Website hosting won't work</strong>
+    <p>Plans sold for hosting a website, the kind that offer PHP, MySQL and a file manager, free ones included, can't run AIngram. They only run PHP, they don't let a program stay running to answer Claude, and many free ones put a "real browsers only" check in front of every site, which turns Claude's connector away. Look for a plan called a VPS, a virtual server or a cloud server, with SSH access.</p>
+  </div></div>
 
   <div class="notice ok"><span class="icon">✓</span><div class="text">
     <strong>What it costs</strong>
