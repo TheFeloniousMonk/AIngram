@@ -26,6 +26,9 @@ KIND_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 CTX_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,31}$")
 CTX_MAX = 4
 IMPORT_KEY_PREFIX = "k_brain_imp_"  # keys that record an admin-approved import
+# A voice that may forget gets this daily limit when its policy doesn't set one, so a
+# policy approved before the setting existed still can't forget hundreds in one go.
+DEFAULT_REDACT_CAP = 10
 
 
 def canonical_ctx(value) -> tuple[str | None, str | None]:
@@ -144,6 +147,7 @@ class VoiceRules:
     may_pin: bool
     may_redact: str                        # own | none | any
     daily_write_cap: int | None            # None means no cap
+    daily_redact_cap: int | None = DEFAULT_REDACT_CAP  # None means no cap
 
 
 @dataclass(frozen=True)
@@ -215,7 +219,8 @@ class Policy:
         now = now or datetime.now(timezone.utc)
         day = now.strftime("%Y-%m-%dT00:00:00.000000Z")
         # Imports are approved by the admin wallet as a whole and never count against a voice's cap.
-        return conn.execute("SELECT COUNT(*) FROM entries WHERE voice = ? AND ts >= ? "
+        # Forgetting has its own cap, so its tombstones don't use up the write cap.
+        return conn.execute("SELECT COUNT(*) FROM entries WHERE voice = ? AND ts >= ? AND kind != 'redaction' "
                             "AND key_id NOT LIKE ? ESCAPE '\\'",
                             (voice, day, IMPORT_KEY_PREFIX.replace("_", "\\_") + "%")).fetchone()[0]
 
@@ -228,6 +233,21 @@ class Policy:
         if self.headroom(conn, voice, now) == 0:
             cap = self.voices[voice].daily_write_cap
             return refuse(f"the {voice} voice has reached its daily cap of {cap} writes (resets 00:00 UTC)")
+        return ALLOW
+
+    def redactions_today(self, conn, voice: str, now: datetime | None = None) -> int:
+        now = now or datetime.now(timezone.utc)
+        day = now.strftime("%Y-%m-%dT00:00:00.000000Z")
+        return conn.execute("SELECT COUNT(*) FROM entries WHERE voice = ? AND ts >= ? AND kind = 'redaction'",
+                            (voice, day)).fetchone()[0]
+
+    def check_redact_cap(self, conn, voice: str, now: datetime | None = None) -> Decision:
+        """Counted per voice and UTC day, like writes. A stolen credential can forget only
+        this many entries a day; the admin page's wallet-signed forgetting has no cap."""
+        cap = self.voices[voice].daily_redact_cap
+        if cap is not None and self.redactions_today(conn, voice, now) >= cap:
+            return refuse(f"the {voice} voice has reached its daily limit of {cap} forgotten entries "
+                          "(resets 00:00 UTC); the admin can forget more from the admin page")
         return ALLOW
 
     # -- reads and redaction
@@ -273,15 +293,16 @@ TOP_KEYS = {"voices", "admin", "brain_only_subjects", "reserved_subjects", "rese
             "decay", "boot", "limits"}
 VOICE_KEYS = {"may_write_kinds", "may_write_subjects", "may_read_subjects", "may_pin",
               "may_redact", "daily_write_cap"}
+OPTIONAL_VOICE_KEYS = {"daily_redact_cap"}
 LIMIT_KEYS = {"body_max_chars", "keywords_max", "keyword_max_chars", "refs_max", "recall_max"}
 BOOT_KEYS = {"recent_tail", "token_budget", "code_digest", "redaction_notice"}
 DECAY_KEYS = {"half_life_days", "reinforce_multiplier", "half_life_cap_days", "reinforced_by", "fade_below"}
 
 
-def _exact_keys(obj, keys: set, where: str) -> dict:
+def _exact_keys(obj, keys: set, where: str, optional: set = frozenset()) -> dict:
     if not isinstance(obj, dict):
         raise PolicyError(f"{where}: must be a mapping")
-    missing, extra = keys - obj.keys(), obj.keys() - keys
+    missing, extra = keys - obj.keys(), obj.keys() - keys - optional
     if missing:
         raise PolicyError(f"{where}: missing {', '.join(sorted(missing))}")
     if extra:
@@ -315,7 +336,7 @@ def _pos_num(obj, where: str) -> float:
 
 def _voice(name: str, raw) -> VoiceRules:
     where = f"voices.{name}"
-    raw = _exact_keys(raw, VOICE_KEYS, where)
+    raw = _exact_keys(raw, VOICE_KEYS, where, OPTIONAL_VOICE_KEYS)
     kinds = raw["may_write_kinds"]
     if kinds == "*":
         kinds = None
@@ -335,6 +356,8 @@ def _voice(name: str, raw) -> VoiceRules:
         may_pin=raw["may_pin"],
         may_redact=raw["may_redact"],
         daily_write_cap=_pos_int(raw["daily_write_cap"], f"{where}.daily_write_cap", allow_null=True),
+        daily_redact_cap=(_pos_int(raw["daily_redact_cap"], f"{where}.daily_redact_cap", allow_null=True)
+                          if "daily_redact_cap" in raw else DEFAULT_REDACT_CAP),
     )
 
 

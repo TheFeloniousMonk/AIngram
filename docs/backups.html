@@ -59,9 +59,14 @@
     <li>every seal in the chain still matches its note;</li>
     <li>tonight's copy carries on from last night's, with nothing missing, rewritten or un-forgotten;</li>
     <li>every policy was approved by the admin wallet the backup itself knows about;</li>
-    <li>no key vanished or came back after being revoked.</li>
+    <li>no key vanished or came back after being revoked;</li>
+    <li>no more than 10 notes were forgotten since the last check.</li>
   </ul>
   <p>If any check fails, it keeps the old copy and warns you.</p>
+  <div class="notice info"><span class="icon">i</span><div class="text">
+    <strong>Why it counts forgotten notes</strong>
+    <p>Forgetting can't be undone. If a stolen key were used to forget lots of notes, the backup notices, keeps the last good copy and warns you. Revoke any key you don't trust on the admin page. If you forgot those notes yourself, run the backup once more with <code>--accept-forgetting</code> added, or on GitHub click <em>Run workflow</em> and tick <em>accept forgetting</em>.</p>
+  </div></div>
   <p>It keeps two things: a <strong>ledger</strong> of every note's seal and subject, but none of its words, which proves the history was never rewritten; and the <strong>latest</strong> full copy, for restoring, replaced each night. So something you forget is gone from the backup within a day.</p>
 
   <h2>1. Create a backup token</h2>

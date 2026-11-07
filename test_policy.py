@@ -50,6 +50,15 @@ class BrainRow(Fixture):
 
     def test_cap(self):
         self.assertEqual(self.p.voices["brain"].daily_write_cap, 300)
+        self.assertEqual(self.p.voices["brain"].daily_redact_cap, 10)
+
+    def test_redact_cap_defaults_when_left_out(self):
+        # A policy approved before the setting existed still limits forgetting.
+        raw = example_raw()
+        raw["voices"]["brain"].pop("daily_redact_cap")
+        self.assertEqual(parse(raw).voices["brain"].daily_redact_cap, 10)
+        raw["voices"]["brain"]["daily_redact_cap"] = None
+        self.assertIsNone(parse(raw).voices["brain"].daily_redact_cap)
 
 
 class CodeRow(Fixture):
@@ -308,6 +317,7 @@ class InvalidFiles(unittest.TestCase):
         self.bad(lambda r: r["voices"]["brain"].update(may_redact="any"), "only the admin")
 
     def test_bad_cap(self):
+        self.bad(lambda r: r["voices"]["brain"].update(daily_redact_cap=0), "daily_redact_cap")
         self.bad(lambda r: r["voices"]["code"].update(daily_write_cap=0), "daily_write_cap")
         self.bad(lambda r: r["voices"]["code"].update(daily_write_cap="60"), "daily_write_cap")
 

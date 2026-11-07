@@ -74,6 +74,8 @@
   <p>Check the connector's address ends in <code>/mcp</code> and matches the one on the admin page's Overview. If the admin page itself won't load, the server may be down; tell whoever runs it.</p>
   <h3>Claude says it has reached its daily limit</h3>
   <p>Each voice can write a set number of notes a day: 300 for the brain and 60 for Code by default. It resets the next day, or you can raise it in your <a href="policy.html">policy</a>. Reading is never limited.</p>
+  <h3>Claude says it can't forget any more today</h3>
+  <p>An AI can forget only a few notes a day (10 by default), so a stolen connection can't erase your memory. It resets the next day. To forget more now, use <em>Forget this entry</em> on the admin page's Memory tab.</p>
   <h3>Claude Code can't write to a project</h3>
   <p>Code may only write under the project folders listed in your policy. Add the project's folder there, and approve it again.</p>
 
@@ -82,6 +84,8 @@
   <p>Each problem names its line. Tell Claude which line and what the problem says, and ask for a corrected file. Nothing is written until the whole file passes and you sign.</p>
 
   <h2>For the server's administrator</h2>
+  <h3>The nightly backup says too many notes were forgotten</h3>
+  <p>If you didn't forget them, a key may have been stolen: revoke any you don't recognise on the Keys tab. The backup has kept the last good copy. If you did forget them, see <a href="backups.html">Nightly backups</a> for how to accept it.</p>
   <h3>Memory switched off after an update</h3>
   <p>The approved policy is missing a setting the new version needs, so the server played safe. The admin page shows the problem and opens the policy for fixing; approve the fixed version and memory comes back on.</p>
   <h3>Memory switched off after changing settings</h3>

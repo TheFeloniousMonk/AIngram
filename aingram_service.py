@@ -357,7 +357,13 @@ def redact(conn, policy: Policy, key_id: str, target: str, reason: str) -> dict:
         raise ServiceError(decision.reason)
     if not isinstance(reason, str) or not reason.strip():
         raise ServiceError("a redaction needs a reason")
-    result = core.redact(conn, target_id=target_id, by_key_id=key_id, reason=reason)
+
+    def within_cap(c):
+        decision = policy.check_redact_cap(c, voice)
+        if not decision:
+            raise ServiceError(decision.reason)
+
+    result = core.redact(conn, target_id=target_id, by_key_id=key_id, reason=reason, guard=within_cap)
     # Anything that leaned on the forgotten entry is flagged for review, never removed automatically.
     flagged = [r["id"] for r in conn.execute(
         """SELECT id FROM entries

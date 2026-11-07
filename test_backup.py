@@ -151,6 +151,40 @@ class Nightly(Backup):
         self.assertTrue(all(p.startswith("ledger/") for p in tracked))
 
 
+class MassForgetting(Backup):
+    def forget(self, n):
+        for i in range(n):
+            self.signed({"action": "redact", "id": self.write(f"note {i}", "a body"), "reason": "test"})
+
+    def test_a_few_forgotten_entries_pass(self):
+        self.pull()
+        self.forget(3)
+        self.pull(AINGRAM_BACKUP_MAX_FORGOTTEN="3")
+        self.assertFalse((self.folder / "ALERT.txt").exists())
+
+    def test_too_many_keep_the_last_good_copy_until_accepted(self):
+        keep = self.write("keep me", "the body that must survive")
+        self.pull()
+        self.signed({"action": "redact", "id": keep, "reason": "test"})
+        self.forget(3)
+        with self.assertRaisesRegex(backup.BackupError, "4 entries were forgotten since the last backup, more than the 3"):
+            self.pull(AINGRAM_BACKUP_MAX_FORGOTTEN="3")
+        latest = (self.folder / "latest" / "entries.jsonl").read_text(encoding="utf-8")
+        self.assertIn("the body that must survive", latest)
+        # It keeps failing each night until accepted, then moves on.
+        with self.assertRaises(backup.BackupError):
+            self.pull(AINGRAM_BACKUP_MAX_FORGOTTEN="3")
+        backup.pull(self.folder, use_git=False, accept_forgetting=True,
+                    env={**self.env, "AINGRAM_BACKUP_MAX_FORGOTTEN": "3"})
+        self.assertNotIn("the body that must survive",
+                         (self.folder / "latest" / "entries.jsonl").read_text(encoding="utf-8"))
+        self.pull(AINGRAM_BACKUP_MAX_FORGOTTEN="3")
+
+    def test_the_limit_must_be_a_whole_number(self):
+        with self.assertRaisesRegex(backup.BackupError, "MAX_FORGOTTEN"):
+            self.pull(AINGRAM_BACKUP_MAX_FORGOTTEN="0")
+
+
 class Tampering(Backup):
     def assert_fails(self, needle, **env):
         before = self.ledger() if (self.folder / "ledger" / "entries.jsonl").exists() else None

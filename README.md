@@ -99,14 +99,15 @@ Upload each file on the Import tab. If there are several parts, each one is chec
 
 ## Nightly backup
 
-Anyone with root on the server could edit the database directly, and no signature can prevent that. What catches it is a copy the server can't reach, checked every night. Each night the backup downloads the export with a read-only backup token and checks four things:
+Anyone with root on the server could edit the database directly, and no signature can prevent that. What catches it is a copy the server can't reach, checked every night. Each night the backup downloads the export with a read-only backup token and checks five things:
 
 - the log verifies: every hash is recomputed from content
 - it extends the previous night's: nothing missing, rewritten or un-redacted
 - every policy approval is signed by the admin address the backup itself trusts
 - no key vanished or came back from revocation
+- no more than 10 entries were forgotten since the last run (set `AINGRAM_BACKUP_MAX_FORGOTTEN` to change it), since more can mean a stolen key erasing memory
 
-If a check fails, nothing is overwritten and you're alerted.
+If a check fails, nothing is overwritten and you're alerted, so the last good full copy survives. If you forgot that many entries yourself, run the backup once with `--accept-forgetting` (on GitHub, *Run workflow* with *accept forgetting* ticked).
 
 The backup keeps a **ledger** in git: every entry's header (ids, hashes, subjects, kinds, times) with no content, which is enough to prove the history was never rewritten. It also keeps the **latest** full export for restoring, replaced each night and never committed. So content you redact leaves the backup within a day.
 
@@ -128,7 +129,7 @@ python aingram_admin.py policy status
 
 - A caller's voice comes only from its credential. Code keys are 256-bit random secrets, stored as SHA-256 and shown once. The brain's OAuth tokens are also 256-bit, stored hashed, bound to this server's `/mcp`, and tied to a grant that only the admin wallet can create.
 - Only redirect URIs in `AINGRAM_OAUTH_REDIRECT_URIS` (Claude's callback by default) can register as OAuth clients, so another site can't ask you to approve a grant that would be sent to it. The approval message your wallet signs names the server, the connector, the voice and that one request, and works once.
-- Policy decides what each voice may write, read, pin and redact. The server loads only policy text the admin wallet approved, and re-checks its hash on load.
+- Policy decides what each voice may write, read, pin and redact. Forgetting can't be undone, so each voice that may forget has a daily limit (`daily_redact_cap`, 10 if the policy leaves it out): a stolen brain credential can't erase hundreds of entries at once. The admin page's wallet-signed forgetting has no limit. The server loads only policy text the admin wallet approved, and re-checks its hash on load.
 - An admin session can only look. A stolen session cookie can't change anything, because every change needs a fresh wallet signature over that exact command. The cookie is HttpOnly and SameSite=Strict, only its hash is stored, and changing requests must come from the server's own origin. *Sign out everywhere* on the overview ends every session at once.
 - Read what your wallet shows before approving. Command messages start with `AIngram admin command` and name the server and the exact action. Approve them only on your own admin page, never because another site asks. For a policy, the wallet shows only the policy's hash: the page checks that it matches the text and changes you reviewed.
 - Changing `AINGRAM_ADMIN_ADDRESS` or the public URL makes earlier policy approvals no longer apply (they were signed by another wallet, or for another server). The server then starts with memory off until the admin approves a policy again.

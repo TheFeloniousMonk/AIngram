@@ -3,6 +3,17 @@
 Versions follow [semantic versioning](https://semver.org). A change to the
 hashing or schema version (`V` in `aingram_core.py`) is always a major version.
 
+## Unreleased
+
+- Forgetting has a daily limit per voice, `daily_redact_cap` in the policy (10
+  when left out, so policies approved earlier are covered too). Forgetting from
+  the admin page, signed by the wallet, has no limit. Tombstones no longer count
+  against the daily write cap.
+- The nightly backup fails, keeping the last good full copy, when more than 10
+  entries were forgotten since the last run (`AINGRAM_BACKUP_MAX_FORGOTTEN`).
+  Accept it once with `--accept-forgetting`, or on GitHub with the workflow's
+  "accept forgetting" box.
+
 ## 2.0.0 (2026-11-02)
 
 - The excerpt is a clue and the body is the memory: tool descriptions and

@@ -23,6 +23,10 @@ voices:
     may_pin: true
     may_redact: own          # entries written by the brain voice
     daily_write_cap: 300
+    # Forgetting can't be undone, so it has its own daily limit: a stolen brain
+    # credential can't erase hundreds of entries at once. The admin page can
+    # always forget more, signed by the wallet. Left out, it defaults to 10.
+    daily_redact_cap: 10
 
   code:
     may_write_kinds: [decision, shipped, gotcha]

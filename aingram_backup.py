@@ -7,6 +7,10 @@ read-only backup token and checks it:
   - the new log verifies on its own (every hash recomputed from its content);
   - it extends last night's: no entry missing or changed, no redaction undone,
     no redaction record gone;
+  - no more than a handful of entries were forgotten since last night (10 unless
+    AINGRAM_BACKUP_MAX_FORGOTTEN says otherwise). More looks like a stolen key
+    erasing memory, so last night's full copy is kept until you accept it with
+    --accept-forgetting;
   - every policy approval is signed by the admin address *this backup* trusts
     (set when you set it up, not read from the server), and each approved
     policy text matches its hash; none of last night's approvals vanished;
@@ -26,7 +30,7 @@ ALERT.txt is written, and (with --notify) a desktop alert pops up. The exit
 status is nonzero, which is what makes a GitHub job email you.
 
     python aingram_backup.py install --url https://SERVER --token aigb_... --admin 0x...
-    python aingram_backup.py pull [--dir FOLDER] [--notify] [--no-git] [--no-latest]
+    python aingram_backup.py pull [--dir FOLDER] [--notify] [--no-git] [--no-latest] [--accept-forgetting]
 
 Needs Python 3.11+ and eth-account (pip install -r requirements-backup.txt).
 """
@@ -53,7 +57,9 @@ import aingram_core as core
 
 CONTENT_FIELDS = ("excerpt", "keywords", "body", "salt")
 ENV_FILE = "backup.env"
-CONFIG_KEYS = ("AINGRAM_BACKUP_URL", "AINGRAM_BACKUP_TOKEN", "AINGRAM_BACKUP_ADMIN", "AINGRAM_BACKUP_SERVER")
+CONFIG_KEYS = ("AINGRAM_BACKUP_URL", "AINGRAM_BACKUP_TOKEN", "AINGRAM_BACKUP_ADMIN", "AINGRAM_BACKUP_SERVER",
+               "AINGRAM_BACKUP_MAX_FORGOTTEN")
+MAX_FORGOTTEN = 10  # entries forgotten between two backups before it stops and asks
 TIMEOUT = 120
 
 
@@ -84,6 +90,10 @@ def load_config(folder: Path, env=None) -> dict:
     if p.scheme != "https" and not (p.scheme == "http" and p.hostname in ("127.0.0.1", "localhost", "::1")):
         raise BackupError("AINGRAM_BACKUP_URL must be https://")
     config["AINGRAM_BACKUP_URL"] = url
+    limit = config.get("AINGRAM_BACKUP_MAX_FORGOTTEN") or str(MAX_FORGOTTEN)
+    if not limit.isdigit() or int(limit) < 1:
+        raise BackupError("AINGRAM_BACKUP_MAX_FORGOTTEN must be a whole number of at least 1")
+    config["AINGRAM_BACKUP_MAX_FORGOTTEN"] = int(limit)
     # Approvals are signed for a server name, which defaults to the public URL's host.
     config["AINGRAM_BACKUP_SERVER"] = config.get("AINGRAM_BACKUP_SERVER") or p.netloc
     return config
@@ -118,10 +128,11 @@ def write_jsonl(path: Path, records: list[dict]) -> None:
             f.write(json.dumps(r, ensure_ascii=True, sort_keys=True) + "\n")
 
 
-def check_entries(old_ledger: Path | None, new_export: Path) -> list[str]:
+def check_entries(old_ledger: Path | None, new_export: Path, max_forgotten: int | None = MAX_FORGOTTEN) -> list[str]:
     """The new export verifies and extends last night's ledger. Headers carry each
     entry's content hash and the new export's hashes are recomputed from its content,
-    so the ledger needs no content to catch an edit."""
+    so the ledger needs no content to catch an edit. More than max_forgotten new
+    redactions is a problem too (None: accept any number, once)."""
     entries, redactions = core.load_jsonl(new_export)
     problems = [f"new export: {p}" for p in core.verify_records(entries, redactions)]
     if old_ledger is None or not old_ledger.exists():
@@ -139,6 +150,13 @@ def check_entries(old_ledger: Path | None, new_export: Path) -> list[str]:
     for entry_id in old_red:
         if entry_id not in redactions:
             problems.append(f"redaction of {entry_id[:12]}: record disappeared")
+    forgotten = len(set(redactions) - set(old_red))
+    if max_forgotten is not None and forgotten > max_forgotten:
+        problems.append(
+            f"{forgotten} entries were forgotten since the last backup, more than the {max_forgotten} allowed. "
+            "That can mean a stolen key is erasing memory: revoke any key you don't trust on the admin "
+            "page. The last good full copy is kept. If you forgot them yourself, run the backup once "
+            "with --accept-forgetting (on GitHub: Run workflow with 'accept forgetting' ticked).")
     return problems
 
 
@@ -184,7 +202,8 @@ def check_admin(old: dict | None, new: dict, admin_address: str, server: str) ->
 
 # ---------------------------------------------------------------- the nightly run
 
-def pull(folder: Path, *, use_git: bool = True, keep_latest: bool = True, env=None) -> list[str]:
+def pull(folder: Path, *, use_git: bool = True, keep_latest: bool = True, accept_forgetting: bool = False,
+         env=None) -> list[str]:
     """Download, check, and on success update the backup folder. Returns notes; raises
     BackupError with every problem found if a check fails."""
     config = load_config(folder, env)
@@ -197,7 +216,8 @@ def pull(folder: Path, *, use_git: bool = True, keep_latest: bool = True, env=No
             new_admin = json.loads((tmp / "admin.json").read_text(encoding="utf-8"))
             old_admin_path = folder / "ledger" / "admin.json"
             old_admin = json.loads(old_admin_path.read_text(encoding="utf-8")) if old_admin_path.exists() else None
-            problems = check_entries(folder / "ledger" / "entries.jsonl", tmp / "entries.jsonl")
+            problems = check_entries(folder / "ledger" / "entries.jsonl", tmp / "entries.jsonl",
+                                     None if accept_forgetting else config["AINGRAM_BACKUP_MAX_FORGOTTEN"])
             admin_problems, notes = check_admin(old_admin, new_admin, config["AINGRAM_BACKUP_ADMIN"],
                                                 config["AINGRAM_BACKUP_SERVER"])
             problems += admin_problems
@@ -323,13 +343,16 @@ def main(argv=None) -> int:
     r.add_argument("--notify", action="store_true", help="pop up a desktop alert if a check fails")
     r.add_argument("--no-git", action="store_true")
     r.add_argument("--no-latest", action="store_true", help="don't keep the full export (the GitHub job keeps it as an artifact)")
+    r.add_argument("--accept-forgetting", action="store_true",
+                   help="this once, accept more forgotten entries than the limit (only if you forgot them)")
     args = p.parse_args(argv)
     folder = Path(args.dir).expanduser().resolve()
     try:
         if args.cmd == "install":
             out = install(folder, args.url.rstrip("/"), args.token, args.admin, args.at, not args.no_schedule)
         else:
-            out = pull(folder, use_git=not args.no_git, keep_latest=not args.no_latest)
+            out = pull(folder, use_git=not args.no_git, keep_latest=not args.no_latest,
+                       accept_forgetting=args.accept_forgetting)
         print("\n".join(out))
         return 0
     except BackupError as e:

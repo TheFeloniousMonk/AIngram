@@ -9,11 +9,15 @@
 #   variable  AINGRAM_BACKUP_ADMIN   your admin wallet address (the one this backup trusts)
 #   variable  AINGRAM_REF            optional: the AIngram commit to check with (default main);
 #                                     pin a commit so the checker can't change under you
+#   variable  AINGRAM_BACKUP_MAX_FORGOTTEN  optional: how many entries may be forgotten
+#                                     between two runs before the check stops (default 10)
 #
 # Each night the job checks the export and commits the ledger (headers, no
 # content) to this repository. The full export is kept as a run download that
 # expires after 7 days, so content you redact leaves GitHub within a week.
-# If a check fails the run fails, and GitHub emails you.
+# If a check fails the run fails, and GitHub emails you. If it failed because
+# more entries were forgotten than the limit and you did that yourself, use
+# Run workflow with "accept forgetting" ticked.
 
 name: AIngram backup
 
@@ -21,6 +25,11 @@ on:
   schedule:
     - cron: "30 4 * * *"   # 04:30 UTC daily
   workflow_dispatch:        # "Run workflow" button, for the first run
+    inputs:
+      accept_forgetting:
+        description: "Accept more forgotten entries than the limit, this once (only if you forgot them)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -51,10 +60,12 @@ jobs:
           AINGRAM_BACKUP_URL: ${{ vars.AINGRAM_BACKUP_URL }}
           AINGRAM_BACKUP_ADMIN: ${{ vars.AINGRAM_BACKUP_ADMIN }}
           AINGRAM_BACKUP_TOKEN: ${{ secrets.AINGRAM_BACKUP_TOKEN }}
+          AINGRAM_BACKUP_MAX_FORGOTTEN: ${{ vars.AINGRAM_BACKUP_MAX_FORGOTTEN }}
+          ACCEPT: ${{ inputs.accept_forgetting && '--accept-forgetting' || '' }}
         run: |
           printf '.aingram/\nlatest/\nfailed/\nALERT.txt\n' > .gitignore
           git add .gitignore
-          python .aingram/aingram_backup.py pull --dir .
+          python .aingram/aingram_backup.py pull --dir . $ACCEPT
 
       - name: Keep the full export for 7 days
         uses: actions/upload-artifact@v4

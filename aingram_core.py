@@ -250,13 +250,16 @@ def append(conn, **kw) -> dict:
 
 
 def redact(conn, *, target_id: str, by_key_id: str, reason: str, ts: str | None = None,
-           salt: str | None = None) -> dict:
+           salt: str | None = None, guard=None) -> dict:
     """Forget an entry's content. Appends a tombstone, nulls the content,
-    records the reason in the admin-only table. One transaction."""
+    records the reason in the admin-only table. One transaction. `guard(conn)`,
+    if given, runs first inside it, so a limit it checks can't be raced past."""
     if not reason or not reason.strip():
         raise AIngramError("a redaction needs a reason")
     conn.execute("BEGIN IMMEDIATE")
     try:
+        if guard is not None:
+            guard(conn)
         row = conn.execute("SELECT redacted_at FROM entries WHERE id = ?", (target_id,)).fetchone()
         if row is None:
             raise AIngramError(f"no entry {target_id}")

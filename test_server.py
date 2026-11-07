@@ -349,6 +349,15 @@ class Redaction(Harness):
         self.assertEqual(core.verify(self.conn), [])
         self.assertEqual(self.ok(self.brain, "recall", query="secret")["hits"], [])
 
+    def test_forgetting_has_a_daily_limit(self):
+        ids = [self.ok(self.brain, "write", subject="misc", kind="fact", excerpt=f"e{i}")["id"] for i in range(12)]
+        for i in range(10):
+            self.ok(self.brain, "redact", id=ids[i], reason="tidy")
+        self.refused(self.brain, "redact", "daily limit of 10 forgotten entries", id=ids[10], reason="tidy")
+        self.assertIsNotNone(self.ok(self.brain, "read", id=ids[10])["body"])
+        # Tombstones don't use up the write cap.
+        self.assertEqual(self.ok(self.brain, "boot")["writes_left_today"], 300 - 12)
+
     def test_code_cannot_redact(self):
         e = self.ok(self.code, "write", subject="aingram/x", kind="decision", excerpt="e")
         self.refused(self.code, "redact", "may not redact", id=e["id"], reason="r")
