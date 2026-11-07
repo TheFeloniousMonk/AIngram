@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 # The release, as in the git tag v<VERSION>. Bump it with a CHANGELOG.md entry.
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 # The first draft the admin page offers before any policy is approved.

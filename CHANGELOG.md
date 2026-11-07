@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org). A change to the
 hashing or schema version (`V` in `aingram_core.py`) is always a major version.
 
-## Unreleased
+## 2.1.0 (2026-11-07)
 
 - Forgetting has a daily limit per voice, `daily_redact_cap` in the policy (10
   when left out, so policies approved earlier are covered too). Forgetting from
